@@ -1,0 +1,72 @@
+
+
+[tool.pylint.main]
+ignore = [
+  ".git",
+  ".mypy_cache",
+  ".ruff_cache",
+  "__pycache__",
+  ".venv",
+  ".info",
+  ".other",
+  ".debug",
+  ".vscode",
+  "pyproject.toml",
+]
+
+[tool.pylint.messages_control]
+disable = [
+  "C0103", # doesn't conform to snake_case naming style (invalid-name)
+  "C0114", # missing-module-docstring
+  "C0115", # missing-class-docstring
+  "C0116", # missing-function-docstring
+  "W1203", # Use lazy % formatting in logging functions (logging-fstring-interpolation)
+]
+
+[tool.ruff]
+exclude = [
+  ".git",
+  ".mypy_cache",
+  ".ruff_cache",
+  "__pycache__",
+  ".venv",
+  ".info",
+  ".other",
+  ".debug",
+  ".vscode",
+]
+indent-width = 4
+line-length = 120
+
+[tool.mypy]
+exclude = [
+  ".git",
+  ".mypy_cache",
+  ".ruff_cache",
+  "__pycache__",
+  ".venv",
+  ".info",
+  ".other",
+  ".debug",
+  ".vscode",
+]
+
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module = [
+  "pytz",
+  "garminconnect",
+  "inquirer",
+  "python-dateutil",
+  "dateutil",
+  "dateutil.parser",
+]
+
+[tool.pylint.logging]
+# The type of string formatting that logging methods do. `old` means using %
+# formatting, `new` is for `{}` formatting.
+logging-format-style = "new"
+
+[tool.pylint.format]
+indent-width = 4
+max-line-length = 120

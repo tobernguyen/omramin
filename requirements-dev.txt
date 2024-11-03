@@ -1,0 +1,13 @@
+garminconnect
+click
+brotlicffi
+httpx[http2,cli,brotli]
+python-dateutil
+json5
+pytz
+inquirer
+bleak
+
+mypy
+types-python-dateutil
+types-pytz

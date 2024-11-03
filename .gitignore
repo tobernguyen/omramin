@@ -1,0 +1,8 @@
+.venv/**
+.debug/**
+.info/**
+__pycache__/**
+.mypy_cache/**
+.other/**
+.env
+config.json
