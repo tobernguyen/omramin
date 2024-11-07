@@ -11,6 +11,7 @@ good idea not allowing devices from AP to be added to Europe/America _OMRON conn
 
 ```
 python -m venv .venv
+. .venv/bin/activate
 pip install -r requirements.txt
 ```
 
