@@ -475,14 +475,9 @@ setattr(GC.Garmin, "delete_blood_pressure", delete_blood_pressure)
 
 
 @click.group()
+@click.version_option(__VERSION__)
 def cli():
     """Sync data from 'OMRON connect' to 'Garmin Connect'"""
-
-
-@cli.command(name="version")
-def version():
-    """Show the version of the application."""
-    L.info(f"Version: {__VERSION__}")
 
 
 @cli.command(name="list")
