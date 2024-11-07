@@ -593,15 +593,15 @@ def remove_device(devName: str):
     default="ALL",
     help="Name or MAC address of the device to sync.",
 )
-@click.option("--days", default=1, show_default=True, help="Number of days to sync from today.")
+@click.option("--days", default=0, show_default=True, type=click.INT, help="Number of days to sync from today.")
 def sync_device(devName: str, days: int):
     """Sync device(s) to Garmin Connect."""
     config = U.json_load("config.json")
     devices = config.get("omron", {}).get("devices", [])
 
-    days = max(days, 1)
+    days = max(days, 0)
 
-    today = datetime.combine(datetime.today().date(), datetime.min.time())
+    today = datetime.combine(datetime.today().date(), datetime.max.time())
     start = today - timedelta(days=days)
     start = datetime.combine(start, datetime.min.time())
 
