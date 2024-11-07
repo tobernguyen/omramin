@@ -137,6 +137,7 @@ def garmin_login() -> T.Optional[GC.Garmin]:
         ]
         answers = inquirer.prompt(questions)
         if not answers:
+            # pylint: disable-next=raise-missing-from
             raise LoginError("Invalid input")
 
         email = answers["email"]
@@ -205,6 +206,7 @@ def omron_login() -> T.Optional[OC.OmronConnect]:
         ]
         answers = inquirer.prompt(questions)
         if not answers:
+            # pylint: disable-next=raise-missing-from
             raise LoginError("Invalid input")
 
         username = answers["username"]

@@ -1,6 +1,6 @@
-
-
 [tool.pylint.main]
+# make pylint ignore tool.ruff settings
+disable = ["unrecognized-option"]
 ignore = [
   ".git",
   ".mypy_cache",

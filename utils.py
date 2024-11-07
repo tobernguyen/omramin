@@ -6,13 +6,14 @@ import re
 import types
 import collections.abc
 from datetime import datetime, date, time, timezone, timedelta
-from dateutil.parser import parse as dateutil_parse
 import json
-import json5
 import dataclasses
 from difflib import SequenceMatcher
 from functools import reduce
 from copy import deepcopy
+
+import json5
+from dateutil.parser import parse as dateutil_parse
 
 ########################################################################################################################
 
@@ -100,14 +101,14 @@ def json_print(obj) -> None:
 
 
 def json_save(fname: str, obj: T.Dict[str, T.Any]) -> None:
-    with open(fname, "w") as f:
+    with open(fname, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=4, sort_keys=False, cls=EnhancedJSONEncoder)
 
 
 def json_load(fname: str, object_hook=None) -> T.Dict[str, T.Any]:
-    with open(fname, "r") as f:
-        return json5.load(f, object_hook=None)
-        return json.load(f, object_hook=lambda d: types.SimpleNamespace(**d))
+    with open(fname, "r", encoding="utf-8") as f:
+        return json5.load(f, object_hook=object_hook)
+        # return json.load(f, object_hook=lambda d: types.SimpleNamespace(**d))
 
 
 ########################################################################################################################
@@ -145,7 +146,7 @@ def minuteround(dt: datetime) -> datetime:
 
 
 # https://stackoverflow.com/a/1060330
-def daterange(start_date: date, end_date: date) -> T.Generator[date]:
+def daterange(start_date: date, end_date: date) -> T.Generator[date, None, None]:
     for n in range(int((end_date - start_date).days)):
         yield start_date + timedelta(n)
 
@@ -163,6 +164,7 @@ def deep_update(d: T.Dict[KeyType, T.Any], u: T.Dict[KeyType, T.Any], *, existin
     for k, v in u.items():
         if existing and k not in r:
             continue
+        # pylint: disable-next=no-member
         if isinstance(v, collections.abc.Mapping) and isinstance(v, dict):
             r[k] = deep_update(r.get(k, type(r)()), v)
         else:
@@ -179,6 +181,7 @@ def deep_merge(d: T.Dict[KeyType, T.Any], u: T.Dict[KeyType, T.Any], *, existing
     for k, v in u.items():
         if existing and k not in d:
             continue
+        # pylint: disable-next=no-member
         if isinstance(v, collections.abc.Mapping) and isinstance(v, dict):
             r[k] = deep_merge(r.get(k, type(r)()), v)
         else:
