@@ -316,17 +316,19 @@ def device_modify(identifier: T.Optional[str], devices: T.Any) -> bool:
 ########################################################################################################################
 
 
-def omron_sync_device_to_garmin(oc: OC.OmronConnect, gc: GC.Garmin, ocDev: OC.OmronDevice, start=int, end=int) -> None:
-    if end - start <= 0:
+def omron_sync_device_to_garmin(
+    oc: OC.OmronConnect, gc: GC.Garmin, ocDev: OC.OmronDevice, startLocal=int, endLocal=int
+) -> None:
+    if endLocal - startLocal <= 0:
         L.info("Invalid date range")
         return
 
-    startdateStr = datetime.fromtimestamp(start).isoformat(timespec="seconds")
-    enddateStr = datetime.fromtimestamp(end).isoformat(timespec="seconds")
+    startdateStr = datetime.fromtimestamp(startLocal).isoformat(timespec="seconds")
+    enddateStr = datetime.fromtimestamp(endLocal).isoformat(timespec="seconds")
 
     L.info(f"Start synchronizing device {ocDev.name} from {startdateStr} to {enddateStr}")
 
-    measurements = oc.get_measurements(ocDev, searchDateFrom=int(start * 1000), searchDateTo=int(end * 1000))
+    measurements = oc.get_measurements(ocDev, searchDateFrom=int(startLocal * 1000), searchDateTo=int(endLocal * 1000))
     if not measurements:
         L.info("No new measurements")
         return
@@ -341,18 +343,19 @@ def omron_sync_device_to_garmin(oc: OC.OmronConnect, gc: GC.Garmin, ocDev: OC.Om
         gcData = garmin_get_bp_measurements(gc, startdateStr, enddateStr)
 
     for measurement in measurements:
-        # omron timestamp are local and in milliseconds
+        # omron timestamp are UTC and in milliseconds
         tz = pytz.timezone(measurement.timeZone)
         ts = measurement.measureDateTo / 1000
-        dt = datetime.fromtimestamp(ts, tz=tz)
+        dtUTC = U.utcfromtimestamp(ts)
+        dtLocal = datetime.fromtimestamp(ts, tz=tz)
 
-        datetimeStr = dt.isoformat(timespec="seconds")
-        dateStr = dt.date().isoformat()
+        datetimeStr = dtLocal.isoformat(timespec="seconds")
+        dateStr = dtLocal.date().isoformat()
+        lookup = f"{dtUTC.date().isoformat()}:{dtUTC.timestamp()}"
 
         bodyIndexList = measurement.bodyIndexList
 
         if ocDev.category == OC.DeviceCategory.SCALE:
-            lookup = f"{dateStr}:{measurement.measureDateTo}"
             if lookup in gcData.values():
                 if _overwrite:
                     L.warning(f"  ! '{datetimeStr}': removing weigh-in")
@@ -393,8 +396,6 @@ def omron_sync_device_to_garmin(oc: OC.OmronConnect, gc: GC.Garmin, ocDev: OC.Om
                 )
 
         elif ocDev.category == OC.DeviceCategory.BPM:
-            lookup = f"{dateStr}:{measurement.measureDateTo}"
-
             if lookup in gcData.values():
                 if _overwrite:
                     L.warning(f"  ! '{datetimeStr}': removing blood pressure measurement")
@@ -416,6 +417,7 @@ def omron_sync_device_to_garmin(oc: OC.OmronConnect, gc: GC.Garmin, ocDev: OC.Om
 
 
 def garmin_get_bp_measurements(gc: GC.Garmin, startdate: str, enddate: str):
+    # search dates are in local time
     gcData = gc.get_blood_pressure(startdate=startdate, enddate=enddate)
 
     # reduce to list of measurements
@@ -424,24 +426,27 @@ def garmin_get_bp_measurements(gc: GC.Garmin, startdate: str, enddate: str):
     # map of garmin-key:omron-key
     gcMeasurements = {}
     for metric in _gcMeasurements:
-        ver = metric["version"]
-        dtMmeasurement = datetime.fromisoformat(metric["measurementTimestampGMT"] + "Z")
-        ts = int(dtMmeasurement.timestamp() * 1000)
-        dt = dtMmeasurement.date().isoformat()
-        gcMeasurements[ver] = f"{dt}:{ts}"
+        # use UTC for comparison
+        dtUTC = datetime.fromisoformat(f"{metric['measurementTimestampGMT']}Z")
+        gcMeasurements[metric["version"]] = f"{dtUTC.date().isoformat()}:{dtUTC.timestamp()}"
 
     L.info(f"Downloaded {len(gcMeasurements)} bpm measurements from 'Garmin Connect'")
     return gcMeasurements
 
 
 def garmin_get_weighins(gc: GC.Garmin, startdate: str, enddate: str):
+    # search dates are in local time
     gcData = gc.get_weigh_ins(startdate=startdate, enddate=enddate)
 
     # reduce to list of allWeightMetrics
     _gcWeighins = [metric for x in gcData["dailyWeightSummaries"] for metric in x["allWeightMetrics"]]
 
     # map of garmin-key:omron-key
-    gcWeighins = {metric["samplePk"]: f'{metric["calendarDate"]}:{metric["timestampGMT"]}' for metric in _gcWeighins}
+    gcWeighins = {}
+    for metric in _gcWeighins:
+        # use UTC for comparison
+        dtUTC = U.utcfromtimestamp(int(metric["timestampGMT"]) / 1000)
+        gcWeighins[metric["samplePk"]] = f"{dtUTC.date().isoformat()}:{dtUTC.timestamp()}"
 
     L.info(f"Downloaded {len(gcWeighins)} weigh-ins from 'Garmin Connect'")
 
