@@ -369,6 +369,15 @@ def omron_sync_device_to_garmin(
                     continue
 
             weight = bodyIndexList[OC.ValueType.KG_FIGURE].value / 100
+            weightUnit = bodyIndexList[OC.ValueType.KG_FIGURE].subtype
+            # garmin uses kg
+            if weightUnit == OC.WeightUnit.G:
+                weight = weight / 1000
+            elif weightUnit == OC.WeightUnit.LB:
+                weight = weight * 0.45359237
+            elif weightUnit == OC.WeightUnit.ST:
+                weight = weight * 6.35029318
+
             percent_fat = bodyIndexList[OC.ValueType.BODY_FAT_PER_FIGURE].value / 10
             bodyFat = bodyIndexList[OC.ValueType.BODY_FAT_PER_FIGURE].value / 10
             sceletalMuscle = bodyIndexList[OC.ValueType.RATE_SKELETAL_MUSCLE_FIGURE].value / 10

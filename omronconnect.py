@@ -45,6 +45,25 @@ _debugSaveResponse = False
 # 8192 -> g
 
 
+class Gender(enum.IntEnum):
+    MALE = 1
+    FEMALE = 2
+
+
+class LengthUnit(enum.IntEnum):
+    CM = 4098
+    INCH = 4113
+    KM = 4099
+    MILE = 4112
+
+
+class WeightUnit(enum.IntEnum):
+    G = 8192
+    KG = 8195
+    LB = 8208
+    ST = 8224
+
+
 class ValueType(enum.StrEnum):
     MMHG_MAX_FIGURE = "1"  # ("%1$,3.0f", 1, 20496, R.string.msg0000808, R.string.msg0020959),
     KPA_MAX_FIGURE = "1"  # ("%.1f", 1, 20483, R.string.msg0000809, R.string.msg0020993),
@@ -185,18 +204,6 @@ class Measurement(U.DataclassBase):
     bodyIndexList: T.Dict[ValueType, BodyIndexList]
     clientAppId: int
     measurementMode: int
-
-
-# @dataclass(kw_only=True, match_args=True)
-# class SearchMeasurement(U.DataclassBase):
-#     containCorrectedDataFlag: int = 1
-#     containAllDataTypeFlag: int = 1
-#     deviceCategory: DeviceCategory
-#     deviceSerialID: str
-#     userNumberInDevice: int = 1
-#     searchDateFrom: int = 0
-#     searchDateTo: int
-#     deviceModel: T.Optional[str] = None
 
 
 ########################################################################################################################
