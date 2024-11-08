@@ -420,11 +420,26 @@ def omron_sync_device_to_garmin(
             systolic = bodyIndexList[OC.ValueType.MMHG_MAX_FIGURE].value
             diastolic = bodyIndexList[OC.ValueType.MMHG_MIN_FIGURE].value
             pulse = bodyIndexList[OC.ValueType.BPM_FIGURE].value
+            bodymotion = bodyIndexList[OC.ValueType.BODY_MOTION_FLAG_FIGURE].value
+            irregHB = bodyIndexList[OC.ValueType.ARRHYTHMIA_FLAG_FIGURE].value
+            cuffWrapGuid = bodyIndexList[OC.ValueType.KEEP_UP_CHECK_FIGURE].value
+
+            notes = ""
+            if bodymotion:
+                notes = "Body Movement detected"
+            if irregHB:
+                notes = f"{notes}, Irregular heartbeat detected"
+            if int(cuffWrapGuid) != 1:
+                notes = f"{notes}, Cuff wrap error"
+            if notes:
+                notes = notes.lstrip(", ")
 
             L.info(f"  + '{datetimeStr}' adding blood pressure ({systolic}/{diastolic} mmHg, {pulse} bpm)")
 
             if _writeToGarmin:
-                gc.set_blood_pressure(timestamp=datetimeStr, systolic=systolic, diastolic=diastolic, pulse=pulse)
+                gc.set_blood_pressure(
+                    timestamp=datetimeStr, systolic=systolic, diastolic=diastolic, pulse=pulse, notes=notes
+                )
 
 
 def garmin_get_bp_measurements(gc: GC.Garmin, startdate: str, enddate: str):
