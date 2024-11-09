@@ -1,4 +1,5 @@
-#
+#!/usr/bin/env python3
+########################################################################################################################
 
 import typing as T
 
@@ -10,7 +11,6 @@ from datetime import datetime, timedelta
 import asyncio
 
 import garth
-import pytz
 import inquirer
 import click
 import bleak
@@ -18,6 +18,7 @@ import garminconnect as GC
 
 import utils as U
 import omronconnect as OC
+from regionserver import get_server_for_country_code
 
 ########################################################################################################################
 
@@ -175,7 +176,7 @@ def omron_login() -> T.Optional[OC.OmronConnect]:
         if not tokendata:
             raise FileNotFoundError
 
-        oc = OC.OmronConnect(server)
+        oc = OC.get_omron_connect(server)
         authResponse = oc.refresh_oauth2(tokendata)
         if not authResponse:
             raise FileNotFoundError
@@ -184,8 +185,8 @@ def omron_login() -> T.Optional[OC.OmronConnect]:
         L.info("Omron login")
         questions = [
             inquirer.Text(
-                name="username",
-                message="> Enter username or email",
+                name="email",
+                message="> Enter email",
                 validate=lambda _, x: x != "",
             ),
             inquirer.Password(
@@ -193,33 +194,31 @@ def omron_login() -> T.Optional[OC.OmronConnect]:
                 message="> Enter password",
                 validate=lambda _, x: x != "",
             ),
-            # inquirer.List(
-            #     "server",
-            #     message="> Select server",
-            #     choices=[
-            #         ("Asia/Pacific", "https://data-sg.omronconnect.com"),  # old api
-            #         ("Europe", "https://oi-api.ohiomron.eu"),  # new api
-            #         ("North America", "https://oi-api.ohiomron.com"),  # new api
-            #         ("Japan", "https://oi-api.ohiomron.jp"),  # new api
-            #     ],
-            # ),
+            inquirer.Text(
+                "country",
+                message="> Enter country code (e.g. 'US')",
+                validate=lambda _, x: get_server_for_country_code(x),
+            ),
         ]
         answers = inquirer.prompt(questions)
         if not answers:
             # pylint: disable-next=raise-missing-from
             raise LoginError("Invalid input")
 
-        username = answers["username"]
+        email = answers["email"]
         password = answers["password"]
-        # server = answers["server"]
+        country = answers["country"]
+        server = get_server_for_country_code(country)
 
-        oc = OC.OmronConnect(server)
-        authResponse = oc.login(username=username, password=password)
+        oc = OC.get_omron_connect(server)
+        refreshToken = oc.login(email=email, password=password, country=country)
         if authResponse:
-            tokendata = authResponse.refresh_token
-            ocCfg["username"] = username
+            tokendata = refreshToken
+            ocCfg["email"] = email
             ocCfg["server"] = server
             ocCfg["tokendata"] = tokendata
+            ocCfg["country"] = country
+            ocCfg["server"] = server
 
             U.json_save("config.json", config)
 
@@ -346,16 +345,14 @@ def omron_sync_device_to_garmin(
 
     for measurement in measurements:
         # omron timestamp are UTC and in milliseconds
-        tz = pytz.timezone(measurement.timeZone)
-        ts = measurement.measureDateTo / 1000
+        tz = measurement.timeZone
+        ts = measurement.measurementDate / 1000
         dtUTC = U.utcfromtimestamp(ts)
         dtLocal = datetime.fromtimestamp(ts, tz=tz)
 
         datetimeStr = dtLocal.isoformat(timespec="seconds")
         dateStr = dtLocal.date().isoformat()
         lookup = f"{dtUTC.date().isoformat()}:{dtUTC.timestamp()}"
-
-        bodyIndexList = measurement.bodyIndexList
 
         if ocDev.category == OC.DeviceCategory.SCALE:
             if lookup in gcData.values():
@@ -368,42 +365,26 @@ def omron_sync_device_to_garmin(
                     L.info(f"  - '{datetimeStr}' weigh-in already exists")
                     continue
 
-            weight = bodyIndexList[OC.ValueType.KG_FIGURE].value / 100
-            weightUnit = bodyIndexList[OC.ValueType.KG_FIGURE].subtype
-            # garmin uses kg
-            if weightUnit == OC.WeightUnit.G:
-                weight = weight / 1000
-            elif weightUnit == OC.WeightUnit.LB:
-                weight = weight * 0.45359237
-            elif weightUnit == OC.WeightUnit.ST:
-                weight = weight * 6.35029318
+            wm = T.cast(OC.WeightMeasurement, measurement)
 
-            percent_fat = bodyIndexList[OC.ValueType.BODY_FAT_PER_FIGURE].value / 10
-            bodyFat = bodyIndexList[OC.ValueType.BODY_FAT_PER_FIGURE].value / 10
-            sceletalMuscle = bodyIndexList[OC.ValueType.RATE_SKELETAL_MUSCLE_FIGURE].value / 10
-
-            basal_met = bodyIndexList[OC.ValueType.BASAL_METABOLISM_FIGURE].value
-            # physique_rating = bodyIndexList[OC.ValueType.RATE_SKELETAL_MUSCLE_CHECK_FIGURE].value
-            metabolic_age = bodyIndexList[OC.ValueType.BIOLOGICAL_AGE_FIGURE].value
-            visceral_fat_rating = bodyIndexList[OC.ValueType.VISCERAL_FAT_FIGURE].value / 10
-            bmi = bodyIndexList[OC.ValueType.BMI_FIGURE].value / 10
-
-            L.info(f"  + '{datetimeStr}' adding weigh-in: {weight} kg ")
+            L.info(f"  + '{datetimeStr}' adding weigh-in: {wm.weight} kg ")
             if _writeToGarmin:
                 gc.add_body_composition(
                     timestamp=datetimeStr,
-                    weight=weight,
-                    percent_fat=percent_fat,
+                    weight=wm.weight,
+                    percent_fat=wm.bodyFatPercentage if wm.bodyFatPercentage > 0 else None,
                     percent_hydration=None,
-                    visceral_fat_mass=bodyFat,
+                    visceral_fat_mass=None,
                     bone_mass=None,
-                    muscle_mass=sceletalMuscle,
-                    basal_met=basal_met,
+                    muscle_mass=(
+                        (wm.skeletalMusclePercentage * wm.weight) / 100 if wm.skeletalMusclePercentage > 0 else None
+                    ),
+                    basal_met=wm.restingMetabolism if wm.restingMetabolism > 0 else None,
                     active_met=None,
                     physique_rating=None,
-                    metabolic_age=metabolic_age,
-                    visceral_fat_rating=visceral_fat_rating,
-                    bmi=bmi,
+                    metabolic_age=wm.metabolicAge if wm.metabolicAge > 0 else None,
+                    visceral_fat_rating=wm.visceralFatLevel if wm.visceralFatLevel > 0 else None,
+                    bmi=wm.bmiValue,
                 )
 
         elif ocDev.category == OC.DeviceCategory.BPM:
@@ -417,28 +398,23 @@ def omron_sync_device_to_garmin(
                     L.info(f"  - '{datetimeStr}' blood pressure already exists")
                     continue
 
-            systolic = bodyIndexList[OC.ValueType.MMHG_MAX_FIGURE].value
-            diastolic = bodyIndexList[OC.ValueType.MMHG_MIN_FIGURE].value
-            pulse = bodyIndexList[OC.ValueType.BPM_FIGURE].value
-            bodymotion = bodyIndexList[OC.ValueType.BODY_MOTION_FLAG_FIGURE].value
-            irregHB = bodyIndexList[OC.ValueType.ARRHYTHMIA_FLAG_FIGURE].value
-            cuffWrapGuid = bodyIndexList[OC.ValueType.KEEP_UP_CHECK_FIGURE].value
+            bpm = T.cast(OC.BPMeasurement, measurement)
 
             notes = ""
-            if bodymotion:
+            if bpm.movementDetect:
                 notes = "Body Movement detected"
-            if irregHB:
+            if bpm.irregularHB:
                 notes = f"{notes}, Irregular heartbeat detected"
-            if int(cuffWrapGuid) != 1:
+            if not bpm.cuffWrapDetect:
                 notes = f"{notes}, Cuff wrap error"
             if notes:
                 notes = notes.lstrip(", ")
 
-            L.info(f"  + '{datetimeStr}' adding blood pressure ({systolic}/{diastolic} mmHg, {pulse} bpm)")
+            L.info(f"  + '{datetimeStr}' adding blood pressure ({bpm.systolic}/{bpm.diastolic} mmHg, {bpm.pulse} bpm)")
 
             if _writeToGarmin:
                 gc.set_blood_pressure(
-                    timestamp=datetimeStr, systolic=systolic, diastolic=diastolic, pulse=pulse, notes=notes
+                    timestamp=datetimeStr, systolic=bpm.systolic, diastolic=bpm.diastolic, pulse=bpm.pulse, notes=notes
                 )
 
 

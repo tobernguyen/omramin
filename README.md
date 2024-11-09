@@ -4,9 +4,6 @@
 
 Supports weight and blood pressure measurements.
 
-Currently devices from Asia/Pacific are supported only. I do not have devices from other regions and OMRON thinks it's a
-good idea not allowing devices from AP to be added to Europe/America _OMRON connect_ app.
-
 ### Installing:
 
 ```
@@ -74,7 +71,7 @@ Usually requires devices to be in pairing mode.
 [?] > Is this a Chinese account? (y/N):
 [2024-11-03 09:57:22] [I] Logged in to Garmin Connect
 [2024-11-03 09:57:22] [I] OMRON login
-[?] > Enter username or email: user@omron.connect
+[?] > Enter email: user@omron.connect
 [?] > Enter password: ********
 [2024-11-03 09:57:37] [I] Logged in to OMRON connect
 [2024-11-03 09:57:37] [I] Start synchronizing device my scale from 2024-11-02T00:00:00 to 2024-11-03T00:00:00

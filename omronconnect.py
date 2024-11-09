@@ -1,25 +1,24 @@
+########################################################################################################################
+
 import typing as T
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import enum
 import logging
 import logging.config
+import json
+import hashlib
+import datetime
 
 import httpx
+import pytz
 import utils as U
-
+from java_timezone_ids import JAVA_TZ_IDS
 
 ########################################################################################################################
 
 L = logging.getLogger("omron")
-
-_OMRON_APP_ID = "lou30y2xfa9f"
-_OMRON_API_KEY = "392a4bdff8af4141944d30ca8e3cc860"
-
-_OGSC_APP_VERSION = "010.003.00001"
-_OGSC_SDK_VERSION = "000.101"
-
-_USER_AGENT = f"OmronConnect/{_OGSC_APP_VERSION}.001 CFNetwork/1335.0.3.4 Darwin/21.6.0)"
 
 _debugSaveResponse = False
 
@@ -167,17 +166,8 @@ class DeviceCategory(enum.StrEnum):
     # PULSE_OXIMETER = "4"
 
 
-@dataclass(kw_only=True, match_args=True)
-class AuthResponse(U.DataclassBase):
-    id: str  # guid
-    access_token: str
-    refresh_token: str
-    expires_in: int = 3600
-    token_type: str = "Bearer"
-
-
-@dataclass(kw_only=False, match_args=True)
-class BodyIndexList(U.DataclassBase):
+@dataclass(frozen=True, kw_only=False)
+class BodyIndexList:
     value: int
     subtype: int  # unit/format ?
     unknown1: int
@@ -185,26 +175,62 @@ class BodyIndexList(U.DataclassBase):
 
     def __post_init__(self):
         for field in ["value", "subtype", "unknown1", "unknown2"]:
-            setattr(self, field, int(getattr(self, field)))
+            object.__setattr__(self, field, int(getattr(self, field)))
 
 
-@dataclass(kw_only=True, match_args=True)
-class Measurement(U.DataclassBase):
+########################################################################################################################
+
+
+@dataclass(frozen=True, kw_only=True)
+class BPMeasurement:
+    systolic: int
+    diastolic: int
+    pulse: int
+    measurementDate: int
+    timeZone: datetime.tzinfo
+    irregularHB: bool = False
+    movementDetect: bool = False
+    cuffWrapDetect: bool = True
+
     def __post_init__(self):
-        for k, v in self.bodyIndexList.items():
-            self.bodyIndexList[k] = BodyIndexList(*v)
+        for field in ["systolic", "diastolic", "pulse", "measurementDate"]:
+            object.__setattr__(self, field, int(getattr(self, field)))
+        for field in ["irregularHB", "movementDetect", "cuffWrapDetect"]:
+            object.__setattr__(self, field, bool(getattr(self, field)))
+        if not isinstance(self.timeZone, datetime.tzinfo):
+            object.__setattr__(self, "timeZone", pytz.timezone(self.timeZone))
 
-    transferDate: int
-    measureDateFrom: int
-    measureDateTo: int
-    measureDeviceDateFrom: str
-    measureDeviceDateTo: str
-    userUpdateDate: int
-    timeZone: str
-    bodyIndexList: T.Dict[ValueType, BodyIndexList]
-    clientAppId: int
-    measurementMode: int
 
+@dataclass(frozen=True, kw_only=True)
+class WeightMeasurement:
+    weight: float
+    measurementDate: int
+    timeZone: datetime.tzinfo
+    bmiValue: float = -1.0
+    bodyFatPercentage: float = -1.0
+    restingMetabolism: float = -1.0
+    skeletalMusclePercentage: float = -1.0
+    visceralFatLevel: float = -1.0
+    metabolicAge: int = -1
+
+    def __post_init__(self):
+        for field in [
+            "weight",
+            "bmiValue",
+            "bodyFatPercentage",
+            "restingMetabolism",
+            "skeletalMusclePercentage",
+            "visceralFatLevel",
+            "metabolicAge",
+        ]:
+            object.__setattr__(self, field, float(getattr(self, field)))
+        for field in ["measurementDate", "metabolicAge"]:
+            object.__setattr__(self, field, int(getattr(self, field)))
+        if not isinstance(self.timeZone, datetime.tzinfo):
+            object.__setattr__(self, "timeZone", pytz.timezone(self.timeZone))
+
+
+MeasurementTypes = T.Union[BPMeasurement, WeightMeasurement]
 
 ########################################################################################################################
 
@@ -216,110 +242,148 @@ def ble_mac_to_serial(mac: str) -> str:
     return serial.lower()
 
 
+def convert_weight_to_kg(weight: T.Union[int, float], unit: int) -> float:
+    if unit == WeightUnit.G:
+        return weight / 1000
+    elif unit == WeightUnit.LB:
+        return weight * 0.45359237
+    elif unit == WeightUnit.ST:
+        return weight * 6.35029318
+    else:
+        return weight
+
+
 ########################################################################################################################
 
 
+@dataclass(frozen=True, kw_only=True)
 class OmronDevice:
-    def __init__(
-        self, name: str, macaddr: str, category: T.Union[DeviceCategory, str], user: int = 1, enabled: bool = True
-    ):
-        self._name = name
-        self._macaddr = macaddr
-        self._serial = ble_mac_to_serial(macaddr)
-        self._category = (
-            category if isinstance(category, DeviceCategory) else DeviceCategory.__members__[category.upper()]
-        )
-        self._user = user
-        self._enabled = enabled
+    name: str
+    macaddr: str
+    category: T.Union[DeviceCategory, str]
+    user: int = 1
+    enabled: bool = True
 
-    def __repr__(self):
-        return (
-            f"OmronDevice(name='{self.name}' serial='{self.serial}', category='{self.category.name}', user={self.user})"
-        )
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def macaddr(self) -> str:
-        return self._macaddr
+    def __post_init__(self):
+        if not isinstance(self.category, DeviceCategory):
+            object.__setattr__(self, "category", DeviceCategory.__members__[self.category.upper()])
 
     @property
     def serial(self) -> str:
-        return self._serial
-
-    @property
-    def category(self) -> DeviceCategory:
-        return self._category
-
-    @property
-    def user(self) -> int:
-        return self._user
-
-    @property
-    def enabled(self) -> bool:
-        return self._enabled
+        return ble_mac_to_serial(self.macaddr)
 
 
 ########################################################################################################################
 
 
-class OmronConnect:
-    _APP_URL = f"/api/apps/{_OMRON_APP_ID}/server-code"
+def _http_add_checksum(request: httpx.Request):
+    if request.method in ["POST", "DELETE"] and request.content:
+        request.headers["Checksum"] = hashlib.sha256(request.content).hexdigest()
 
-    def __init__(self, server: str):
-        self.headers = {
-            "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": _USER_AGENT,
-            "Accept": "*/*",
-            "Accept-Encoding": "gzip, deflate, br",
+
+########################################################################################################################
+
+
+class OmronConnect(ABC):
+    @abstractmethod
+    def login(self, email: str, password: str, country: str) -> T.Optional[str]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def refresh_oauth2(self, refresh_token: str) -> T.Optional[str]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_user(self) -> T.Dict[str, T.Any]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_measurements(
+        self, device: OmronDevice, searchDateFrom: int = 0, searchDateTo: int = 0
+    ) -> T.List[MeasurementTypes]:
+        raise NotImplementedError
+
+
+########################################################################################################################
+
+
+class OmronConnect1(OmronConnect):
+    _APP_ID = "lou30y2xfa9f"
+    _API_KEY = "392a4bdff8af4141944d30ca8e3cc860"
+    _OGSC_APP_VERSION = "010.003.00001"
+    _OGSC_SDK_VERSION = "000.101"
+
+    _APP_URL = f"/api/apps/{_APP_ID}/server-code"
+
+    _USER_AGENT = f"OmronConnect/{_OGSC_APP_VERSION}.001 CFNetwork/1335.0.3.4 Darwin/21.6.0)"
+
+    _client = httpx.Client(
+        event_hooks={
+            "request": [_http_add_checksum],
+            # "response": [update_token],
+        },
+        headers={
+            "user-agent": _USER_AGENT,
             "X-OGSC-SDK-Version": _OGSC_SDK_VERSION,
             "X-OGSC-App-Version": _OGSC_APP_VERSION,
-            "X-Kii-AppID": _OMRON_APP_ID,
-            "X-Kii-AppKey": _OMRON_API_KEY,
-        }
-        self._server = server
+            "X-Kii-AppID": _APP_ID,
+            "X-Kii-AppKey": _API_KEY,
+        },
+    )
 
-    def login(self, username: str, password: str) -> T.Optional[AuthResponse]:
+    def __init__(self, server: str):
+        self._server = server
+        self._headers: T.Dict[str, str] = {}
+
+    def login(self, email: str, password: str, country: str = "") -> T.Optional[str]:
         authData = {
-            "username": username,
+            "username": email,
             "password": password,
         }
-        r = httpx.post(f"{self._server}/api/oauth2/token", json=authData, headers=self.headers)
+        r = self._client.post(f"{self._server}/api/oauth2/token", json=authData, headers=self._headers)
         r.raise_for_status()
 
-        authResponse = AuthResponse.from_dict(r.json())
-        if authResponse:
-            self.headers["authorization"] = f"Bearer {authResponse.access_token}"
-            return authResponse
+        resp = r.json()
+        try:
+            access_token = resp["access_token"]
+            refresh_token = resp["refresh_token"]
+            self._headers["authorization"] = f"Bearer {access_token}"
+            return refresh_token
+
+        except KeyError:
+            pass
 
         return None
 
-    def refresh_oauth2(self, refresh_token: str) -> T.Optional[AuthResponse]:
+    def refresh_oauth2(self, refresh_token: str) -> T.Optional[str]:
         data = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
         }
-        r = httpx.post(f"{self._server}/api/oauth2/token", json=data, headers=self.headers)
+        r = self._client.post(f"{self._server}/api/oauth2/token", json=data, headers=self._headers)
         r.raise_for_status()
 
-        authResponse = AuthResponse.from_dict(r.json())
-        if authResponse:
-            self.headers["authorization"] = f"Bearer {authResponse.access_token}"
-            return authResponse
+        resp = r.json()
+        try:
+            access_token = resp["access_token"]
+            refresh_token = resp["refresh_token"]
+            self._headers["authorization"] = f"Bearer {access_token}"
+            return refresh_token
+
+        except KeyError:
+            pass
 
         return None
 
-    def get_me(self) -> T.Dict[str, T.Any]:
-        r = httpx.get(f"{self._server}{self._APP_URL}/users/me", headers=self.headers)
+    def get_user(self) -> T.Dict[str, T.Any]:
+        r = self._client.get(f"{self._server}{self._APP_URL}/users/me", headers=self._headers)
         r.raise_for_status()
         return r.json()
 
     # utc timestamps
     def get_measurements(
         self, device: OmronDevice, searchDateFrom: int = 0, searchDateTo: int = 0
-    ) -> T.List[Measurement]:
+    ) -> T.List[MeasurementTypes]:
         data = {
             "containCorrectedDataFlag": 1,
             "containAllDataTypeFlag": 1,
@@ -331,7 +395,9 @@ class OmronConnect:
             # "deviceModel": "OSG",
         }
 
-        r = httpx.post(f"{self._server}{self._APP_URL}/versions/current/measureData", json=data, headers=self.headers)
+        r = self._client.post(
+            f"{self._server}{self._APP_URL}/versions/current/measureData", json=data, headers=self._headers
+        )
         r.raise_for_status()
 
         resp = r.json()
@@ -351,7 +417,7 @@ class OmronConnect:
             fname = f".debug/{data['searchDateTo']}_{device.serial}_{device.user}.json"
             U.json_save(fname, returnedValue)
 
-        measurements: T.List[Measurement] = []
+        measurements: T.List[MeasurementTypes] = []
         devCat = DeviceCategory(returnedValue["deviceCategory"])
         deviceModelList = returnedValue["deviceModelList"]
         if deviceModelList is None:
@@ -365,11 +431,250 @@ class OmronConnect:
                 user = dev["userNumberInDevice"]
                 L.debug(f" - deviceModel: {deviceModel} category: {devCat.name} serial: {deviceSerialID} user: {user}")
 
-                if deviceSerialID == device.serial:
-                    measurements = [Measurement(**m) for m in dev["measureList"]]
-                    break
+                if deviceSerialID != device.serial:
+                    continue
+
+                if device.category == DeviceCategory.BPM:
+                    for m in dev["measureList"]:
+                        bodyIndexList = {}
+                        for k, v in m["bodyIndexList"].items():
+                            bodyIndexList[k] = BodyIndexList(*v)
+
+                        systolic = bodyIndexList[ValueType.MMHG_MAX_FIGURE].value
+                        diastolic = bodyIndexList[ValueType.MMHG_MIN_FIGURE].value
+                        pulse = bodyIndexList[ValueType.BPM_FIGURE].value
+                        bodymotion = bodyIndexList[ValueType.BODY_MOTION_FLAG_FIGURE].value
+                        irregHB = bodyIndexList[ValueType.ARRHYTHMIA_FLAG_FIGURE].value
+                        cuffWrapGuid = bodyIndexList[ValueType.KEEP_UP_CHECK_FIGURE].value
+
+                        bp = BPMeasurement(
+                            systolic=systolic,
+                            diastolic=diastolic,
+                            pulse=pulse,
+                            measurementDate=m["measureDateTo"],
+                            timeZone=m["timeZone"],
+                            irregularHB=irregHB != 0,
+                            movementDetect=bodymotion != 0,
+                            cuffWrapDetect=cuffWrapGuid == 1,
+                        )
+                        measurements.append(bp)
+
+                elif device.category == DeviceCategory.SCALE:
+                    for m in dev["measureList"]:
+                        bodyIndexList = {}
+                        for k, v in m["bodyIndexList"].items():
+                            bodyIndexList[k] = BodyIndexList(*v)
+
+                        weight = bodyIndexList[ValueType.KG_FIGURE].value / 100
+                        weightUnit = bodyIndexList[ValueType.KG_FIGURE].subtype
+                        # garmin uses kg
+                        weight = convert_weight_to_kg(weight, weightUnit)
+                        bodyFatPercentage = bodyIndexList[ValueType.BODY_FAT_PER_FIGURE].value / 10
+                        # bodyFat = bodyIndexList[ValueType.BODY_FAT_PER_FIGURE].value / 10
+                        sceletalMusclePercentage = bodyIndexList[ValueType.RATE_SKELETAL_MUSCLE_FIGURE].value / 10
+                        # sceletalMuscle = bodyIndexList[ValueType.KG_SKELETAL_MUSCLE_MASS_FIGURE].value / 10
+                        # sceletalMuscleUnit = bodyIndexList[ValueType.KG_SKELETAL_MUSCLE_MASS_FIGURE].subtype
+                        # sceletalMuscle = convert_weight_to_kg(sceletalMuscle, sceletalMuscleUnit)
+
+                        basal_met = bodyIndexList[ValueType.BASAL_METABOLISM_FIGURE].value
+                        # physique_rating = bodyIndexList[ValueType.RATE_SKELETAL_MUSCLE_CHECK_FIGURE].value
+                        metabolic_age = bodyIndexList[ValueType.BIOLOGICAL_AGE_FIGURE].value
+                        visceral_fat_rating = bodyIndexList[ValueType.VISCERAL_FAT_FIGURE].value / 10
+                        bmi = bodyIndexList[ValueType.BMI_FIGURE].value / 10
+
+                        wm = WeightMeasurement(
+                            weight=weight,
+                            measurementDate=m["measureDateTo"],
+                            timeZone=m["timeZone"],
+                            bmiValue=bmi,
+                            bodyFatPercentage=bodyFatPercentage,
+                            restingMetabolism=basal_met,
+                            skeletalMusclePercentage=sceletalMusclePercentage,
+                            visceralFatLevel=visceral_fat_rating,
+                            metabolicAge=metabolic_age,
+                        )
+                        measurements.append(wm)
+                break
 
         return measurements
+
+
+class OmronConnect2(OmronConnect):
+    _APP_NAME = "OCM"
+    _APP_URL = "/app"
+    _APP_VERSION = "7.20.0"
+    _USER_AGENT = "Foresight/{_APP_VERSION} (com.omronhealthcare.omronconnect; build:37; iOS 15.8.3) Alamofire/5.9.1"
+
+    # monkey-patch httpx so checksum(req.content) works with omron servers.
+    # pylint: disable=protected-access
+    httpx._content.json_dumps = lambda obj, **kw: json.dumps(obj, separators=(",", ":"), **kw)
+
+    _client = httpx.Client(
+        event_hooks={
+            "request": [_http_add_checksum],
+        },
+        headers={
+            "user-agent": _USER_AGENT,
+        },
+    )
+
+    def __init__(self, server: str):
+        self._server = server
+        self._headers: T.Dict[str, str] = {}
+        self._email: str = ""
+
+    def login(self, email: str, password: str, country: str) -> T.Optional[str]:
+        data = {
+            "emailAddress": email,
+            "password": password,
+            "country": country,
+            "app": self._APP_NAME,
+        }
+        r = self._client.post(f"{self._server}{self._APP_URL}/login", json=data)
+        r.raise_for_status()
+
+        resp = r.json()
+        try:
+            accessToken = resp["accessToken"]
+            refreshToken = resp["refreshToken"]
+            self._headers["authorization"] = f"{accessToken}"
+            self._email = email
+            return refreshToken
+
+        except KeyError:
+            pass
+
+        return None
+
+    def refresh_oauth2(self, refresh_token: str) -> T.Optional[str]:
+        data = {
+            "app": self._APP_NAME,
+            "emailAddress": self._email,
+            "refreshToken": refresh_token,
+        }
+
+        r = self._client.post(f"{self._server}{self._APP_URL}/login", json=data, headers=self._headers)
+        r.raise_for_status()
+
+        resp = r.json()
+        try:
+            accessToken = resp["accessToken"]
+            refreshToken = resp["refreshToken"]
+            self._headers["authorization"] = f"{accessToken}"
+            return refreshToken
+
+        except KeyError:
+            pass
+
+        return None
+
+    def get_user(self) -> T.Dict[str, T.Any]:
+        r = self._client.get(f"{self._server}{self._APP_URL}/user?app={self._APP_NAME}", headers=self._headers)
+        r.raise_for_status()
+        resp = r.json()
+
+        return resp["data"]
+
+    def get_bp_measurements(
+        self, nextpaginationKey: int = 0, lastSyncedTime: int = 0, phoneIdentifier: str = ""
+    ) -> T.List[T.Dict[str, T.Any]]:
+        _lastSyncedTime = "" if lastSyncedTime <= 0 else lastSyncedTime
+        r = self._client.get(
+            f"{self._server}{self._APP_URL}/v2/sync/bp?nextpaginationKey={nextpaginationKey}"
+            f"&lastSyncedTime={_lastSyncedTime}&phoneIdentifier={phoneIdentifier}",
+            headers=self._headers,
+        )
+        r.raise_for_status()
+        resp = r.json()
+        return resp["data"]
+
+    def get_weighins(
+        self, nextpaginationKey: int = 0, lastSyncedTime: int = 0, phoneIdentifier: str = ""
+    ) -> T.List[T.Dict[str, T.Any]]:
+        _lastSyncedTime = "" if lastSyncedTime <= 0 else lastSyncedTime
+        r = self._client.get(
+            f"{self._server}{self._APP_URL}/v2/sync/weight?nextpaginationKey={nextpaginationKey}"
+            f"&lastSyncedTime={_lastSyncedTime}&phoneIdentifier={phoneIdentifier}",
+            headers=self._headers,
+        )
+        r.raise_for_status()
+        resp = r.json()
+        return resp["data"]
+
+    def get_measurements(
+        self, device: OmronDevice, searchDateFrom: int = 0, searchDateTo: int = 0
+    ) -> T.List[MeasurementTypes]:
+
+        user = int(device.user)
+
+        def filter_measurements(data) -> T.List[MeasurementTypes]:
+            r: T.List[MeasurementTypes] = []
+            for m in data:
+                userNumberInDevice = int(m["userNumberInDevice"])
+                if user >= 0 and userNumberInDevice != user:
+                    L.debug(f"skipping user: {user} != {userNumberInDevice}")
+                    continue
+
+                measurementDate = int(m["measurementDate"])
+                if searchDateTo > 0 and measurementDate > searchDateTo:
+                    L.debug(f"skipping date: {measurementDate} > {searchDateTo}")
+                    continue
+
+                if int(m["isManualEntry"]):
+                    L.debug("skipping manual entry")
+                    continue
+
+                timeZone = pytz.timezone(JAVA_TZ_IDS[int(m["timeZone"][:3])])
+
+                if device.category == DeviceCategory.BPM:
+                    bpm = BPMeasurement(
+                        systolic=int(m["systolic"]),
+                        diastolic=int(m["diastolic"]),
+                        pulse=int(m["pulse"]),
+                        measurementDate=measurementDate,
+                        timeZone=timeZone,
+                        irregularHB=int(m["irregularHB"]) != 0,
+                        movementDetect=int(m["movementDetect"]) != 0,
+                        cuffWrapDetect=int(m["cuffWrapDetect"]) == 1,
+                    )
+                    r.append(bpm)
+
+                elif device.category == DeviceCategory.SCALE:
+                    weight = float(m["weight"])
+                    weightInLbs = float(m["weightInLbs"])
+                    if weight <= 0 and weightInLbs > 0:
+                        weight = weightInLbs * 0.453592
+
+                    wm = WeightMeasurement(
+                        weight=weight,
+                        measurementDate=measurementDate,
+                        timeZone=timeZone,
+                        bmiValue=float(m["bmiValue"]),
+                        bodyFatPercentage=float(m["bodyFatPercentage"]),
+                        restingMetabolism=float(m["restingMetabolism"]),
+                        skeletalMusclePercentage=float(m["skeletalMusclePercentage"]),
+                        visceralFatLevel=float(m["visceralFatLevel"]),
+                    )
+                    r.append(wm)
+            return r
+
+        data = None
+        if device.category == DeviceCategory.BPM:
+            data = self.get_bp_measurements(lastSyncedTime=searchDateFrom)
+        elif device.category == DeviceCategory.SCALE:
+            data = self.get_weighins(lastSyncedTime=searchDateFrom)
+
+        return filter_measurements(data) if data else []
+
+
+########################################################################################################################
+
+
+def get_omron_connect(server: str) -> OmronConnect:
+    if "data-sg.omronconnect.com" in server:
+        return OmronConnect1(server)
+    else:
+        return OmronConnect2(server)
 
 
 ########################################################################################################################
