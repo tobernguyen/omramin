@@ -24,9 +24,13 @@ from regionserver import get_server_for_country_code
 
 __VERSION__ = "0.1.0"
 
-_writeToGarmin = True
-_overwrite = False
-_bleMacAddrFilter = True
+
+class Options:
+    def __init__(self):
+        self.write_to_garmin = True
+        self.overwrite = False
+        self.ble_filter = "BLEsmart_"
+
 
 ########################################################################################################################
 
@@ -230,7 +234,7 @@ def omron_login() -> T.Optional[OC.OmronConnect]:
     return None
 
 
-def omron_ble_scan(macAddrsExistig: T.List[str]) -> T.List[str]:
+def omron_ble_scan(macAddrsExistig: T.List[str], opts: Options) -> T.List[str]:
     devsFound = {}
 
     async def scan():
@@ -246,7 +250,9 @@ def omron_ble_scan(macAddrsExistig: T.List[str]) -> T.List[str]:
                 if macAddr in macAddrsExistig:
                     continue
 
-                if _bleMacAddrFilter and not macAddr.startswith("00:5F:BF"):
+                devName = bleDev.name or ""
+
+                if opts.ble_filter and not devName.upper().startswith(opts.ble_filter.upper()):
                     continue
 
                 serial = OC.ble_mac_to_serial(macAddr)
@@ -314,11 +320,8 @@ def device_modify(identifier: T.Optional[str], devices: T.Any) -> bool:
     return True
 
 
-########################################################################################################################
-
-
 def omron_sync_device_to_garmin(
-    oc: OC.OmronConnect, gc: GC.Garmin, ocDev: OC.OmronDevice, startLocal=int, endLocal=int
+    oc: OC.OmronConnect, gc: GC.Garmin, ocDev: OC.OmronDevice, startLocal: int, endLocal: int, opts: Options
 ) -> None:
     if endLocal - startLocal <= 0:
         L.info("Invalid date range")
@@ -356,10 +359,10 @@ def omron_sync_device_to_garmin(
 
         if ocDev.category == OC.DeviceCategory.SCALE:
             if lookup in gcData.values():
-                if _overwrite:
+                if opts.overwrite:
                     L.warning(f"  ! '{datetimeStr}': removing weigh-in")
                     for samplePk, val in gcData.items():
-                        if val == lookup and _writeToGarmin:
+                        if val == lookup and opts.write_to_garmin:
                             gc.delete_weigh_in(weight_pk=samplePk, cdate=dateStr)
                 else:
                     L.info(f"  - '{datetimeStr}' weigh-in already exists")
@@ -368,7 +371,7 @@ def omron_sync_device_to_garmin(
             wm = T.cast(OC.WeightMeasurement, measurement)
 
             L.info(f"  + '{datetimeStr}' adding weigh-in: {wm.weight} kg ")
-            if _writeToGarmin:
+            if opts.write_to_garmin:
                 gc.add_body_composition(
                     timestamp=datetimeStr,
                     weight=wm.weight,
@@ -389,10 +392,10 @@ def omron_sync_device_to_garmin(
 
         elif ocDev.category == OC.DeviceCategory.BPM:
             if lookup in gcData.values():
-                if _overwrite:
+                if opts.overwrite:
                     L.warning(f"  ! '{datetimeStr}': removing blood pressure measurement")
                     for version, val in gcData.items():
-                        if val == lookup and _writeToGarmin:
+                        if val == lookup and opts.write_to_garmin:
                             gc.delete_blood_pressure(version=version, cdate=dateStr)
                 else:
                     L.info(f"  - '{datetimeStr}' blood pressure already exists")
@@ -412,7 +415,7 @@ def omron_sync_device_to_garmin(
 
             L.info(f"  + '{datetimeStr}' adding blood pressure ({bpm.systolic}/{bpm.diastolic} mmHg, {bpm.pulse} bpm)")
 
-            if _writeToGarmin:
+            if opts.write_to_garmin:
                 gc.set_blood_pressure(
                     timestamp=datetimeStr, systolic=bpm.systolic, diastolic=bpm.diastolic, pulse=bpm.pulse, notes=notes
                 )
@@ -520,32 +523,60 @@ def edit_device(devName: str):
 
 
 @cli.command(name="add")
-def add_device():
-    """Add new Omron device."""
+@click.option(
+    "--macaddr",
+    "-m",
+    required=False,
+    help="MAC address of the device to add. If not provided, scan for new devices.",
+)
+@click.option("--ble-filter", help="BLE device name filter", default=Options().ble_filter, show_default=True)
+def add_device(macaddr: T.Optional[str], ble_filter: T.Optional[str]):
+    """Add a new Omron device to the configuration.
+
+    This function allows adding a new Omron device either by providing a MAC address directly
+    or by scanning for available devices. If no MAC address is provided, it will scan for
+    devices and present a selection dialog.
+
+    \b
+    Examples:
+        # Scan and select device interactively
+        python omramin.py add
+    \b
+        # Add device by MAC address
+        python omramin.py add -m 00:11:22:33:44:55
+
+    """
     config = U.json_load("config.json")
     devices = config.get("omron", {}).get("devices", [])
 
-    macAddrs = [d["macaddr"] for d in devices]
-    bleDevices = omron_ble_scan(macAddrs)
-    if not bleDevices:
-        L.info("No devices found.")
-        return
+    opts = Options()
+    opts.ble_filter = ble_filter
 
-    config = U.json_load("config.json")
+    if not macaddr:
+        macAddrs = [d["macaddr"] for d in devices]
+        bleDevices = omron_ble_scan(macAddrs, opts)
+        if not bleDevices:
+            L.info("No devices found.")
+            return
 
-    # make sure we don't add the same device twice
-    tmp = bleDevices.copy()
-    for scanned in bleDevices:
-        if any(d["macaddr"] == scanned for d in devices):
-            tmp.remove(scanned)
-    bleDevices = tmp
+        # make sure we don't add the same device twice
+        tmp = bleDevices.copy()
+        for scanned in bleDevices:
+            if any(d["macaddr"] == scanned for d in devices):
+                tmp.remove(scanned)
+        bleDevices = tmp
 
-    if not bleDevices:
-        L.info("No new devices found.")
-        return
+        if not bleDevices:
+            L.info("No new devices found.")
+            return
 
-    macaddr = inquirer.list_input("Select device", choices=sorted(bleDevices))
+        macaddr = inquirer.list_input("Select device", choices=sorted(bleDevices))
+
     if macaddr:
+        if not U.is_valid_macaddr(macaddr):
+            L.error(f"Invalid MAC address: {macaddr}")
+            return
+
         new_devices = []
         new_devices.append({"macaddr": macaddr})
 
@@ -594,8 +625,37 @@ def remove_device(devName: str):
     help="Name or MAC address of the device to sync.",
 )
 @click.option("--days", default=0, show_default=True, type=click.INT, help="Number of days to sync from today.")
-def sync_device(devName: str, days: int):
-    """Sync device(s) to Garmin Connect."""
+@click.option(
+    "--overwrite", is_flag=True, default=Options().overwrite, show_default=True, help="Overwrite existing measurements."
+)
+@click.option(
+    "--no-write",
+    is_flag=True,
+    default=not Options().write_to_garmin,
+    show_default=True,
+    help="Do not write to Garmin Connect.",
+)
+def sync_device(devName: str, days: int, overwrite: bool, no_write: bool):
+    """Sync device(s) to Garmin Connect.
+
+    This function synchronizes data from OMRON devices to Garmin Connect. It can sync either
+    a single specified device or all configured devices.
+
+    \b
+    Examples:
+        # Sync all devices for the last 7 days
+        python omramin.py sync --days 7
+    \b
+        # Sync a specific device for the last 1 day
+        python omramin.py -d "my scale" --days 1
+    or
+        python omramin.py -d 00:11:22:33:44:55 --days 1
+    """
+
+    opts = Options()
+    opts.overwrite = overwrite
+    opts.write_to_garmin = not no_write
+
     config = U.json_load("config.json")
     devices = config.get("omron", {}).get("devices", [])
 
@@ -632,7 +692,7 @@ def sync_device(devName: str, days: int):
             return
 
         ocDev = OC.OmronDevice(**device)
-        omron_sync_device_to_garmin(oc, gc, ocDev, start.timestamp(), today.timestamp())
+        omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
         L.info(f"Device '{device['name']}' successfully synced.")
 
     else:
@@ -642,7 +702,7 @@ def sync_device(devName: str, days: int):
                 continue
 
             ocDev = OC.OmronDevice(**device)
-            omron_sync_device_to_garmin(oc, gc, ocDev, start.timestamp(), today.timestamp())
+            omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
             L.info(f"Device '{device['name']}' successfully synced.")
 
 

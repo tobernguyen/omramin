@@ -24,6 +24,7 @@ ValueType = T.TypeVar("ValueType")
 
 # match case insensitive UUIDs with or without dashes
 RX_UUID = re.compile(r"([0-9a-f]{32}|[0-9a-f-]{36})\Z", re.I)
+RX_MACADDR = re.compile(r"^([0-9a-f]{2}[:-]){5}([0-9a-f]{2})$", re.I)
 
 ########################################################################################################################
 
@@ -35,6 +36,13 @@ def strsimilar(a: str, b: str) -> float:
 
 def sum_dict_value(d: T.Dict[T.Any, T.Any], key) -> T.Any:
     reduce(lambda a, b: a + b, map(lambda o: o[key], d))
+
+
+########################################################################################################################
+
+
+def is_valid_macaddr(macaddr: str) -> bool:
+    return bool(RX_MACADDR.match(macaddr))
 
 
 ########################################################################################################################
