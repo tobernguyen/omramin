@@ -14,7 +14,6 @@ import datetime
 import httpx
 import pytz
 import utils as U
-from java_timezone_ids import JAVA_TZ_IDS
 
 ########################################################################################################################
 
@@ -446,16 +445,17 @@ class OmronConnect1(OmronConnect):
                         bodymotion = bodyIndexList[ValueType.BODY_MOTION_FLAG_FIGURE].value
                         irregHB = bodyIndexList[ValueType.ARRHYTHMIA_FLAG_FIGURE].value
                         cuffWrapGuid = bodyIndexList[ValueType.KEEP_UP_CHECK_FIGURE].value
+                        timeZone = pytz.timezone(m["timeZone"])
 
                         bp = BPMeasurement(
                             systolic=systolic,
                             diastolic=diastolic,
                             pulse=pulse,
                             measurementDate=m["measureDateTo"],
-                            timeZone=m["timeZone"],
+                            timeZone=timeZone,
                             irregularHB=irregHB != 0,
                             movementDetect=bodymotion != 0,
-                            cuffWrapDetect=cuffWrapGuid == 1,
+                            cuffWrapDetect=cuffWrapGuid != 0,
                         )
                         measurements.append(bp)
 
@@ -481,11 +481,12 @@ class OmronConnect1(OmronConnect):
                         metabolic_age = bodyIndexList[ValueType.BIOLOGICAL_AGE_FIGURE].value
                         visceral_fat_rating = bodyIndexList[ValueType.VISCERAL_FAT_FIGURE].value / 10
                         bmi = bodyIndexList[ValueType.BMI_FIGURE].value / 10
+                        timeZone = pytz.timezone(m["timeZone"])
 
                         wm = WeightMeasurement(
                             weight=weight,
                             measurementDate=m["measureDateTo"],
-                            timeZone=m["timeZone"],
+                            timeZone=timeZone,
                             bmiValue=bmi,
                             bodyFatPercentage=bodyFatPercentage,
                             restingMetabolism=basal_met,
@@ -624,18 +625,19 @@ class OmronConnect2(OmronConnect):
                     L.debug("skipping manual entry")
                     continue
 
-                timeZone = pytz.timezone(JAVA_TZ_IDS[int(m["timeZone"][:3])])
-
                 if device.category == DeviceCategory.BPM:
+
+                    # timezone(timedelta(seconds=int(m["timeZone"])))
+
                     bpm = BPMeasurement(
-                        systolic=int(m["systolic"]),
-                        diastolic=int(m["diastolic"]),
-                        pulse=int(m["pulse"]),
+                        systolic=m["systolic"],
+                        diastolic=m["diastolic"],
+                        pulse=m["pulse"],
                         measurementDate=measurementDate,
-                        timeZone=timeZone,
+                        timeZone=pytz.FixedOffset(int(m["timeZone"]) // 60),
                         irregularHB=int(m["irregularHB"]) != 0,
                         movementDetect=int(m["movementDetect"]) != 0,
-                        cuffWrapDetect=int(m["cuffWrapDetect"]) == 1,
+                        cuffWrapDetect=int(m["cuffWrapDetect"]) != 0,
                     )
                     r.append(bpm)
 
@@ -648,12 +650,12 @@ class OmronConnect2(OmronConnect):
                     wm = WeightMeasurement(
                         weight=weight,
                         measurementDate=measurementDate,
-                        timeZone=timeZone,
-                        bmiValue=float(m["bmiValue"]),
-                        bodyFatPercentage=float(m["bodyFatPercentage"]),
-                        restingMetabolism=float(m["restingMetabolism"]),
-                        skeletalMusclePercentage=float(m["skeletalMusclePercentage"]),
-                        visceralFatLevel=float(m["visceralFatLevel"]),
+                        timeZone=pytz.FixedOffset(int(m["timeZone"]) // 60),
+                        bmiValue=m["bmiValue"],
+                        bodyFatPercentage=m["bodyFatPercentage"],
+                        restingMetabolism=m["restingMetabolism"],
+                        skeletalMusclePercentage=m["skeletalMusclePercentage"],
+                        visceralFatLevel=m["visceralFatLevel"],
                     )
                     r.append(wm)
             return r
