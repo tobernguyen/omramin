@@ -459,22 +459,6 @@ def garmin_get_weighins(gc: GC.Garmin, startdate: str, enddate: str):
 
 
 ########################################################################################################################
-# Add missing method to Garmin Connect API
-def delete_blood_pressure(self, version: str, cdate: str):
-    """Delete specific blood pressure measurement."""
-    url = f"{self.garmin_connect_set_blood_pressure_endpoint}/{cdate}/{version}"
-    L.debug("Deleting blood pressure measurement")
-
-    return self.garth.request(
-        "DELETE",
-        "connectapi",
-        url,
-        api=True,
-    )
-
-
-setattr(GC.Garmin, "delete_blood_pressure", delete_blood_pressure)
-########################################################################################################################
 
 
 @click.group()
