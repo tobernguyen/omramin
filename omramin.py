@@ -195,7 +195,7 @@ def omron_login(_config: str) -> T.Optional[OC.OmronConnect]:
 
     ocCfg = config["omron"]
 
-    authResponse = None
+    refreshToken = None
     try:
         server = ocCfg.get("server", "")
         tokendata = ocCfg.get("tokendata", "")
@@ -203,8 +203,8 @@ def omron_login(_config: str) -> T.Optional[OC.OmronConnect]:
             raise FileNotFoundError
 
         oc = OC.get_omron_connect(server)
-        authResponse = oc.refresh_oauth2(tokendata)
-        if not authResponse:
+        refreshToken = oc.refresh_oauth2(tokendata)
+        if not refreshToken:
             raise FileNotFoundError
 
     except FileNotFoundError:
@@ -238,7 +238,7 @@ def omron_login(_config: str) -> T.Optional[OC.OmronConnect]:
 
         oc = OC.get_omron_connect(server)
         refreshToken = oc.login(email=email, password=password, country=country)
-        if authResponse:
+        if refreshToken:
             tokendata = refreshToken
             ocCfg["email"] = email
             ocCfg["server"] = server
@@ -251,7 +251,8 @@ def omron_login(_config: str) -> T.Optional[OC.OmronConnect]:
 
             except (OSError, IOError, ValueError) as e:
                 L.error(f"Failed to save configuration: {e}")
-    if authResponse:
+
+    if refreshToken:
         L.info("Logged in to OMRON connect")
         return oc
 
@@ -818,6 +819,9 @@ def sync_device(devnames: T.List[str], days: int, overwrite: bool, no_write: boo
         return
 
     devices = config.get("omron", {}).get("devices", [])
+    if not devices:
+        L.info("No devices configured.")
+        return
 
     days = max(days, 0)
 
