@@ -1,3 +1,65 @@
+[project]
+authors = [
+  {name = "bugficks"},
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+  "bleak>=0.22.3",
+  "click>=8.1.7",
+  "garminconnect>=0.2.20",
+  "httpx[http2,cli,brotli]>=0.27.2",
+  "inquirer>=3.4.0",
+  "json5>=0.9.25",
+  "python-dateutil>=2.9.0.post0",
+  "pytz>=2024.2",
+]
+description = "Sync blood pressure and weight measurements from OMRON connect to Garmin Connect"
+dynamic = ["version"]
+keywords = ["garmin connect", "garmin", "omron", "omron connect", "sync"]
+license = {file = "LICENSE"}
+name = "omramin"
+readme = "README.md"
+requires-python = ">=3.8"
+#version = "0.1.1"
+
+[project.urls]
+"Bug Tracker" = "https://github.com/bugficks/omramin/issues"
+#"Changelog" = "https://github.com/bugficks/omramin/blob/master/CHANGELOG.md"
+#"Documentation" = "https://github.com/bugficks/omramin/blob/master/README.md"
+"Homepage" = "https://github.com/bugficks/omramin"
+
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=64"] #, "setuptools-scm > 8"]
+
+[tool.setuptools.dynamic]
+version = {attr = "omramin.__version__"}
+
+[tool.setuptools_scm]
+
+[tool.setuptools.packages.find]
+exclude = [] # exclude packages matching these glob patterns (empty by default) 
+include = ["omramin"] # package names should match these glob patterns (["*"] by default) 
+namespaces = false # to disable scanning PEP 420 namespaces (true by default)
+where = ["."] # list of folders that contain the packages (["."] by default) 
+
+[project.scripts]
+omramin = "omramin:cli"
+
+[tool.setuptools]
+py-modules = ["omramin", "omronconnect", "utils", "regionserver"]
+
+[tool.distutils.egg_info]
+egg_base = "build"
+
+########################################################################################################################
+
 [tool.pylint.main]
 # make pylint ignore tool.ruff settings
 disable = ["unrecognized-option"]

@@ -21,7 +21,9 @@ from regionserver import get_server_for_country_code
 
 ########################################################################################################################
 
-__VERSION__ = "0.1.0"
+__version__ = "0.1.1"
+
+########################################################################################################################
 
 
 class Options:
@@ -558,7 +560,7 @@ class CommonCommand(click.Command):
 
 
 @click.group()
-@click.version_option(__VERSION__)
+@click.version_option(__version__)
 def cli():
     """Sync data from 'OMRON connect' to 'Garmin Connect'"""
 
