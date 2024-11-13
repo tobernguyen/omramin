@@ -3,7 +3,6 @@
 
 import typing as T
 
-import sys
 import logging
 import logging.config
 import binascii
@@ -34,10 +33,12 @@ class Options:
 
 ########################################################################################################################
 
+PATH_DEFAULT_CONFIG = "config.json"
+
 DEFAULT_CONFIG = {
     "garmin": {},
     "omron": {
-        "server": "https://data-sg.omronconnect.com",
+        "server": "",
         "devices": [],
     },
 }
@@ -100,8 +101,16 @@ class LoginError(Exception):
     pass
 
 
-def garmin_login() -> T.Optional[GC.Garmin]:
-    config = U.json_load("config.json")
+def garmin_login(_config: str) -> T.Optional[GC.Garmin]:
+    """Login to Garmin Connect"""
+
+    try:
+        config = U.json_load(_config)
+
+    except FileNotFoundError:
+        L.error(f"Config file '{_config}' not found.")
+        return None
+
     gcCfg = config["garmin"]
 
     def get_mfa():
@@ -155,7 +164,12 @@ def garmin_login() -> T.Optional[GC.Garmin]:
             gcCfg["email"] = email
             gcCfg["is_cn"] = is_cn
             gcCfg["tokendata"] = gc.garth.dumps()
-            U.json_save("config.json", config)
+
+            try:
+                U.json_save(_config, config)
+
+            except (OSError, IOError, ValueError) as e:
+                L.error(f"Failed to save configuration: {e}")
 
     except garth.exc.GarthHTTPError:
         L.error("Failed to login to Garmin Connect", exc_info=True)
@@ -169,8 +183,16 @@ def garmin_login() -> T.Optional[GC.Garmin]:
     return gc
 
 
-def omron_login() -> T.Optional[OC.OmronConnect]:
-    config = U.json_load("config.json")
+def omron_login(_config: str) -> T.Optional[OC.OmronConnect]:
+    """Login to OMRON connect"""
+
+    try:
+        config = U.json_load(_config)
+
+    except FileNotFoundError:
+        L.error(f"Config file '{_config}' not found.")
+        return None
+
     ocCfg = config["omron"]
 
     authResponse = None
@@ -224,8 +246,11 @@ def omron_login() -> T.Optional[OC.OmronConnect]:
             ocCfg["country"] = country
             ocCfg["server"] = server
 
-            U.json_save("config.json", config)
+            try:
+                U.json_save(_config, config)
 
+            except (OSError, IOError, ValueError) as e:
+                L.error(f"Failed to save configuration: {e}")
     if authResponse:
         L.info("Logged in to OMRON connect")
         return oc
@@ -235,6 +260,8 @@ def omron_login() -> T.Optional[OC.OmronConnect]:
 
 
 def omron_ble_scan(macAddrsExistig: T.List[str], opts: Options) -> T.List[str]:
+    """Scan for Omron devices in pairing mode"""
+
     devsFound = {}
 
     async def scan():
@@ -267,19 +294,75 @@ def omron_ble_scan(macAddrsExistig: T.List[str], opts: Options) -> T.List[str]:
     return list(devsFound.keys())
 
 
-def device_modify(identifier: T.Optional[str], devices: T.Any) -> bool:
-    if not devices:
-        L.info("No devices configured.")
-        return False
+DeviceType = T.Dict[str, T.Any]
 
-    if not identifier:
-        macaddrs = [d["macaddr"] for d in devices]
-        identifier = inquirer.list_input("Select device to configure", choices=sorted(macaddrs))
 
-    device = next((d for d in devices if d.get("name") == identifier or d.get("macaddr") == identifier), None)
-    if not device:
-        device = {"macaddr": identifier}
+def device_new(
+    *,
+    macaddr: str,
+    name: T.Optional[str],
+    category: T.Optional[OC.DeviceCategory],
+    user: T.Optional[int],
+    enabled: T.Optional[bool],
+) -> T.Optional[DeviceType]:
 
+    questions = []
+    if name is None:
+        questions.append(
+            inquirer.Text(
+                name="name",
+                message="Name of the device",
+                default="",
+            )
+        )
+    if category is None:
+        questions.append(
+            inquirer.List(
+                "category",
+                message="Type of the device",
+                choices=list(OC.DeviceCategory.__members__.keys()),
+                default="SCALE",
+            )
+        )
+
+    if user is None:
+        questions.append(
+            inquirer.List(
+                "user",
+                message="User number on the device",
+                default=1,
+                choices=[1, 2, 3, 4],
+            )
+        )
+    if enabled is None:
+        questions.append(
+            inquirer.List(
+                name="enabled",
+                message="Enable device",
+                default=True,
+                choices=[True, False],
+            )
+        )
+
+    device = {
+        "macaddr": macaddr,
+        "name": name,
+        "category": category,
+        "user": user,
+        "enabled": enabled,
+    }
+
+    if questions:
+        answers = inquirer.prompt(questions)
+        if not answers:
+            return None
+
+        device.update(answers)
+
+    return device
+
+
+def device_edit(device: DeviceType) -> bool:
     questions = [
         inquirer.Text(
             name="name",
@@ -314,8 +397,6 @@ def device_modify(identifier: T.Optional[str], devices: T.Any) -> bool:
     device["category"] = answers["category"]
     device["user"] = answers["user"]
     device["enabled"] = answers["enabled"]
-    if not any(d["macaddr"] == device["macaddr"] for d in devices):
-        devices.append(device)
 
     return True
 
@@ -330,7 +411,7 @@ def omron_sync_device_to_garmin(
     startdateStr = datetime.fromtimestamp(startLocal).isoformat(timespec="seconds")
     enddateStr = datetime.fromtimestamp(endLocal).isoformat(timespec="seconds")
 
-    L.info(f"Start synchronizing device {ocDev.name} from {startdateStr} to {enddateStr}")
+    L.info(f"Start synchronizing device '{ocDev.name}' from {startdateStr} to {enddateStr}")
 
     measurements = oc.get_measurements(ocDev, searchDateFrom=int(startLocal * 1000), searchDateTo=int(endLocal * 1000))
     if not measurements:
@@ -459,6 +540,20 @@ def garmin_get_weighins(gc: GC.Garmin, startdate: str, enddate: str):
 
 
 ########################################################################################################################
+class CommonCommand(click.Command):
+    """Common options for all commands"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.params[0:0] = [
+            click.Option(
+                ("--config", "_config"),
+                type=click.Path(writable=True, dir_okay=False),
+                default=PATH_DEFAULT_CONFIG,
+                show_default=True,
+                help="Config file",
+            ),
+        ]
 
 
 @click.group()
@@ -467,10 +562,20 @@ def cli():
     """Sync data from 'OMRON connect' to 'Garmin Connect'"""
 
 
-@cli.command(name="list")
-def list_devices():
+########################################################################################################################
+
+
+@cli.command(name="list", cls=CommonCommand)
+def list_devices(_config: str):
     """List all configured devices."""
-    config = U.json_load("config.json")
+
+    try:
+        config = U.json_load(_config)
+
+    except FileNotFoundError:
+        L.error(f"Config file '{_config}' not found.")
+        return
+
     devices = config.get("omron", {}).get("devices", [])
     if not devices:
         L.info("No devices configured.")
@@ -488,38 +593,51 @@ def list_devices():
         L.info("-" * 40)
 
 
-@cli.command(name="config")
-@click.option(
-    "--device",
-    "-d",
-    "devName",
-    required=True,
-    help="Name or MAC address of the device to sync.",
-)
-def edit_device(devName: str):
-    """Configure a device by name or MAC address."""
-
-    config = U.json_load("config.json")
-    devices = config.get("omron", {}).get("devices", [])
-    if device_modify(devName, devices):
-        U.json_save("config.json", config)
-        L.info(f"Device {devName} configured successfully.")
+########################################################################################################################
 
 
-@cli.command(name="add")
+@cli.command(name="add", cls=CommonCommand)
 @click.option(
     "--macaddr",
     "-m",
     required=False,
     help="MAC address of the device to add. If not provided, scan for new devices.",
 )
+@click.option(
+    "--name",
+    "-n",
+    required=False,
+    help="Name of the device to add. If not provided, the serial number will be used.",
+)
+@click.option(
+    "--category",
+    "-c",
+    required=False,
+    type=click.Choice(list(OC.DeviceCategory.__members__.keys()), case_sensitive=False),
+    help="Category of the device (SCALE or BPM).",
+)
+@click.option(
+    "--user",
+    "-u",
+    required=False,
+    type=click.INT,
+    default=1,
+    show_default=True,
+    help="User number on the device (1-4).",
+)
 @click.option("--ble-filter", help="BLE device name filter", default=Options().ble_filter, show_default=True)
-def add_device(macaddr: T.Optional[str], ble_filter: T.Optional[str]):
+def add_device(
+    macaddr: T.Optional[str],
+    name: T.Optional[str],
+    category: T.Optional[OC.DeviceCategory],
+    user: T.Optional[int],
+    ble_filter: T.Optional[str],
+    _config: str,
+):
     """Add a new Omron device to the configuration.
 
     This function allows adding a new Omron device either by providing a MAC address directly
-    or by scanning for available devices. If no MAC address is provided, it will scan for
-    devices and present a selection dialog.
+    or by scanning for available devices.
 
     \b
     Examples:
@@ -528,13 +646,20 @@ def add_device(macaddr: T.Optional[str], ble_filter: T.Optional[str]):
     \b
         # Add device by MAC address
         python omramin.py add -m 00:11:22:33:44:55
+        python omramin.py add -m 00:11:22:33:44:55 -c scale -n "My Scale" -u 3
+
 
     """
-    config = U.json_load("config.json")
-    devices = config.get("omron", {}).get("devices", [])
-
     opts = Options()
     opts.ble_filter = ble_filter
+
+    try:
+        config = U.json_load(_config)
+
+    except FileNotFoundError:
+        config = DEFAULT_CONFIG
+
+    devices = config.get("omron", {}).get("devices", [])
 
     if not macaddr:
         macAddrs = [d["macaddr"] for d in devices]
@@ -561,53 +686,98 @@ def add_device(macaddr: T.Optional[str], ble_filter: T.Optional[str]):
             L.error(f"Invalid MAC address: {macaddr}")
             return
 
-        new_devices = []
-        new_devices.append({"macaddr": macaddr})
+        if macaddr in [d["macaddr"] for d in devices]:
+            L.info(f"Device '{macaddr}' already exists.")
+            return
 
-        if device_modify(macaddr, new_devices):
-            config["omron"]["devices"].extend(new_devices)
-            U.json_save("config.json", config)
-            L.info("Device(s) added successfully.")
+        if device := device_new(macaddr=macaddr, name=name, category=category, user=user, enabled=True):
+            config["omron"]["devices"].append(device)
+            try:
+                U.json_save(_config, config)
+                L.info("Device(s) added successfully.")
+
+            except (OSError, IOError, ValueError) as e:
+                L.error(f"Failed to save configuration: {e}")
 
 
-@cli.command(name="remove")
-@click.option(
-    "--device",
-    "-d",
-    "devName",
-    required=True,
-    help="Name or MAC address of the device to sync.",
-)
-def remove_device(devName: str):
+########################################################################################################################
+
+
+@cli.command(name="config", cls=CommonCommand)
+@click.argument("devname", required=True, type=str, nargs=1)
+def edit_device(devname: str, _config: str):
+    """Edit device configuration."""
+
+    try:
+        config = U.json_load(_config)
+
+    except FileNotFoundError:
+        L.error(f"Config file '{_config}' not found.")
+        return
+
+    devices = config.get("omron", {}).get("devices", [])
+    if not devices:
+        L.info("No devices configured.")
+        return False
+
+    if not devname:
+        macaddrs = [d["macaddr"] for d in devices]
+        devname = inquirer.list_input("Select device to configure", choices=sorted(macaddrs))
+
+    device = next((d for d in devices if d.get("name") == devname or d.get("macaddr") == devname), None)
+    if not device:
+        L.info(f"No device found with identifier: '{devname}'")
+        return
+
+    if device_edit(device):
+        try:
+            U.json_save(_config, config)
+            L.info(f"Device '{devname}' configured successfully.")
+
+        except (OSError, IOError, ValueError) as e:
+            L.error(f"Failed to save configuration: {e}")
+
+
+########################################################################################################################
+
+
+@cli.command(name="remove", cls=CommonCommand)
+@click.argument("devname", required=True, type=str, nargs=1)
+def remove_device(devname: str, _config: str):
     """Remove a device by name or MAC address."""
-    config = U.json_load("config.json")
+
+    try:
+        config = U.json_load(_config)
+    except FileNotFoundError:
+        L.error(f"Config file '{_config}' not found.")
+        return
+
     devices = config.get("omron", {}).get("devices", [])
 
-    if not devName:
+    if not devname:
         macaddrs = [d["macaddr"] for d in devices]
-        devName = inquirer.list_input("Select device to remove", choices=sorted(macaddrs))
+        devname = inquirer.list_input("Select device to remove", choices=sorted(macaddrs))
 
-    device = next((d for d in devices if d.get("name") == devName or d.get("macaddr") == devName), None)
+    device = next((d for d in devices if d.get("name") == devname or d.get("macaddr") == devname), None)
 
     if not device:
-        L.info(f"No device found with identifier: {devName}")
+        L.info(f"No device found with identifier: {devname}")
         return
 
     devices.remove(device)
-    U.json_save("config.json", config)
-    L.info(f"Device '{devName}' removed successfully.")
+    try:
+        U.json_save(_config, config)
+        L.info(f"Device '{devname}' removed successfully.")
+
+    except (OSError, IOError, ValueError) as e:
+        L.error(f"Failed to save configuration: {e}")
 
 
-@cli.command(name="sync")
-@click.option(
-    "--device",
-    "-d",
-    "devName",
-    required=False,
-    show_default=True,
-    default="ALL",
-    help="Name or MAC address of the device to sync.",
-)
+########################################################################################################################
+
+
+@cli.command(name="sync", cls=CommonCommand)
+@click.argument("devnames", required=False, nargs=-1)
 @click.option("--days", default=0, show_default=True, type=click.INT, help="Number of days to sync from today.")
 @click.option(
     "--overwrite", is_flag=True, default=Options().overwrite, show_default=True, help="Overwrite existing measurements."
@@ -619,11 +789,11 @@ def remove_device(devName: str):
     show_default=True,
     help="Do not write to Garmin Connect.",
 )
-def sync_device(devName: str, days: int, overwrite: bool, no_write: bool):
-    """Sync device(s) to Garmin Connect.
+def sync_device(devnames: T.List[str], days: int, overwrite: bool, no_write: bool, _config: str):
+    """Sync DEVNAMES... to Garmin Connect.
 
-    This function synchronizes data from OMRON devices to Garmin Connect. It can sync either
-    a single specified device or all configured devices.
+    \b
+    DEVNAMES: List of Names or MAC addresses for the device to sync. [default: ALL]
 
     \b
     Examples:
@@ -631,16 +801,22 @@ def sync_device(devName: str, days: int, overwrite: bool, no_write: bool):
         python omramin.py sync --days 7
     \b
         # Sync a specific device for the last 1 day
-        python omramin.py -d "my scale" --days 1
+        python omramin.py sync "my scale" --days 1
     or
-        python omramin.py -d 00:11:22:33:44:55 --days 1
+        python omramin.py sync 00:11:22:33:44:55 "my scale" --days 1
     """
 
     opts = Options()
     opts.overwrite = overwrite
     opts.write_to_garmin = not no_write
 
-    config = U.json_load("config.json")
+    try:
+        config = U.json_load(_config)
+
+    except FileNotFoundError:
+        L.error(f"Config file '{_config}' not found.")
+        return
+
     devices = config.get("omron", {}).get("devices", [])
 
     days = max(days, 0)
@@ -650,13 +826,13 @@ def sync_device(devName: str, days: int, overwrite: bool, no_write: bool):
     start = datetime.combine(start, datetime.min.time())
 
     try:
-        gc = garmin_login()
+        gc = garmin_login(_config)
     except LoginError:
         L.info("Failed to login to Garmin Connect.")
         return
 
     try:
-        oc = omron_login()
+        oc = omron_login(_config)
     except LoginError:
         L.info("Failed to login to OMRON connect.")
         return
@@ -665,24 +841,25 @@ def sync_device(devName: str, days: int, overwrite: bool, no_write: bool):
         L.info("Failed to login to OMRON connect or Garmin Connect.")
         return
 
-    if devName != "ALL":
-        device = next((d for d in devices if d.get("name") == devName or d.get("macaddr") == devName), None)
-        if not device:
-            L.info(f"No device found matching: {devName}")
-            return
-
-        if not device["enabled"]:
-            L.info(f"Device '{device['name']}' is disabled.")
-            return
-
-        ocDev = OC.OmronDevice(**device)
-        omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
-        L.info(f"Device '{device['name']}' successfully synced.")
-
-    else:
+    if not devnames:
         for device in devices:
             if not device["enabled"]:
                 L.debug(f"Device '{device['name']}' is disabled.")
+                continue
+
+            ocDev = OC.OmronDevice(**device)
+            omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
+            L.info(f"Device '{device['name']}' successfully synced.")
+
+    else:
+        for devname in devnames:
+            device = next((d for d in devices if d.get("name") == devname or d.get("macaddr") == devname), None)
+            if not device:
+                L.info(f"No device found matching: '{devname}'")
+                continue
+
+            if not device["enabled"]:
+                L.info(f"Device '{device['name']}' is disabled.")
                 continue
 
             ocDev = OC.OmronDevice(**device)
@@ -693,14 +870,6 @@ def sync_device(devName: str, days: int, overwrite: bool, no_write: bool):
 ########################################################################################################################
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        try:
-            _ = U.json_load("config.json")
-
-        except (FileNotFoundError, ValueError):
-            L.info("Creating default config")
-            U.json_save("config.json", DEFAULT_CONFIG)
-
     cli()
 
 ########################################################################################################################

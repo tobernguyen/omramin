@@ -587,6 +587,11 @@ class OmronConnect2(OmronConnect):
         )
         r.raise_for_status()
         resp = r.json()
+
+        if _debugSaveResponse:
+            fname = f".debug/{lastSyncedTime}_bpm_v2.json"
+            U.json_save(fname, resp)
+
         return resp["data"]
 
     def get_weighins(
@@ -600,6 +605,11 @@ class OmronConnect2(OmronConnect):
         )
         r.raise_for_status()
         resp = r.json()
+
+        if _debugSaveResponse:
+            fname = f".debug/{lastSyncedTime}_weight_v2.json"
+            U.json_save(fname, resp)
+
         return resp["data"]
 
     def get_measurements(
