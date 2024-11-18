@@ -15,7 +15,7 @@ dependencies = [
   "garminconnect>=0.2.20",
   "httpx[http2,cli,brotli]>=0.27.2",
   "inquirer>=3.4.0",
-  "json5>=0.9.25",
+  "json5>=0.9.28",
   "python-dateutil>=2.9.0.post0",
   "pytz>=2024.2",
 ]
