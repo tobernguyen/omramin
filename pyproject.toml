@@ -134,7 +134,9 @@ exclude = [
 ]
 extend-ignore = []
 # E402 - module level import not at top of file
+count = true
 ignore = "E402"
+max-complexity = 15
 max-line-length = 120
 
 [tool.isort]
@@ -154,6 +156,9 @@ skip_glob = [
   ".vscode",
 ]
 use_parentheses = true
+
+[tool.black]
+line-length = 120
 
 [tool.pylint.logging]
 # The type of string formatting that logging methods do. `old` means using %

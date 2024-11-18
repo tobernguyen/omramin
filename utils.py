@@ -102,7 +102,7 @@ class EnhancedJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def json_beautify(obj: T.Dict[str, T.Any]) -> str:
+def json_beautify(obj: T.Any) -> str:
     return json.dumps(obj, indent=4, sort_keys=True, cls=EnhancedJSONEncoder)
 
 
@@ -110,23 +110,23 @@ def json_print(obj) -> None:
     print(json_beautify(obj))
 
 
-def json_save(fname: T.Union[pathlib.Path, str], obj: T.Dict[str, T.Any]) -> None:
+def json_save(fname: T.Union[pathlib.Path, str], obj: T.Any) -> None:
     with open(fname, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=4, sort_keys=False, cls=EnhancedJSONEncoder)
 
 
-def json_load(fname: T.Union[pathlib.Path, str], object_hook=None) -> T.Dict[str, T.Any]:
+def json_load(fname: T.Union[pathlib.Path, str], object_hook=None) -> T.Any:
     with open(fname, "r", encoding="utf-8") as f:
         return json5.load(f, object_hook=object_hook)
         # return json.load(f, object_hook=lambda d: types.SimpleNamespace(**d))
 
 
-def json_load_file(f: T.IO, object_hook=None) -> T.Dict[str, T.Any]:
+def json_load_file(f: T.IO, object_hook=None) -> T.Any:
     f.seek(0)
     return json5.load(f, object_hook=object_hook)
 
 
-def json_save_file(f: T.IO, obj: T.Dict[str, T.Any]) -> None:
+def json_save_file(f: T.IO, obj: T.Any) -> None:
     f.seek(0)
     f.truncate()
     json.dump(obj, f, indent=4, sort_keys=False, cls=EnhancedJSONEncoder)

@@ -5,6 +5,8 @@ import typing as T  # isort: split
 
 import asyncio
 import binascii
+import csv
+import dataclasses
 import logging
 import logging.config
 from datetime import datetime, timedelta
@@ -871,6 +873,120 @@ def sync_device(devnames: T.List[str], days: int, overwrite: bool, no_write: boo
             ocDev = OC.OmronDevice(**device)
             omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
             L.info(f"Device '{device['name']}' successfully synced.")
+
+
+########################################################################################################################
+
+
+@cli.command(name="export", cls=CommonCommand)
+@click.argument("devnames", required=False, nargs=-1)
+@click.option(
+    "--category",
+    "-c",
+    "_category",
+    required=True,
+    type=click.Choice(list(OC.DeviceCategory.__members__.keys()), case_sensitive=False),
+)
+@click.option("--days", default=0, show_default=True, type=click.INT, help="Number of days to sync from today.")
+@click.option(
+    "--format",
+    "_format",
+    type=click.Choice(["csv", "json"], case_sensitive=False),
+    default="csv",
+    help="Output format",
+)
+@click.option("--output", "-o", type=click.Path(), help="Output file path")
+def export_measurements(devnames: str, _category: str, days: int, _format: str, output: str, _config: str):
+    """Export device measurements to CSV, JSON format."""
+
+    config = U.json_load("config.json")
+    devices = config.get("omron", {}).get("devices", [])
+    category = OC.DeviceCategory[_category]
+
+    try:
+        oc = omron_login(_config)
+    except LoginError:
+        L.info("Failed to login to OMRON connect.")
+        return
+
+    if not oc:
+        return
+
+    today = datetime.combine(datetime.today().date(), datetime.max.time())
+    start = today - timedelta(days=days)
+    start = datetime.combine(start, datetime.min.time())
+    startLocal = int(start.timestamp())
+    endLocal = int(today.timestamp())
+    if endLocal - startLocal <= 0:
+        L.info("Invalid date range")
+        return
+
+    startdateStr = datetime.fromtimestamp(startLocal).isoformat(timespec="seconds")
+    enddateStr = datetime.fromtimestamp(endLocal).isoformat(timespec="seconds")
+
+    # get list of enabled devices for the category
+    devices = [d for d in devices if d["enabled"] and d["category"] == category.name]
+    # filter by device name or mac address if provided
+    if devnames:
+        devices = [d for d in devices if d["name"] in devnames or d["macaddr"] in devnames]
+
+    if not devices:
+        L.info("No matching devices found")
+        return
+
+    exportdata = {}
+    for device in devices:
+        ocDev = OC.OmronDevice(**device)
+        L.info(f"Exporting device '{ocDev.name}' from {startdateStr} to {enddateStr}")
+
+        measurements = oc.get_measurements(
+            ocDev, searchDateFrom=int(startLocal * 1000), searchDateTo=int(endLocal * 1000)
+        )
+        if measurements:
+            exportdata[ocDev] = measurements
+
+    if not exportdata:
+        L.info("No measurements found")
+        return
+
+    if not output:
+        output = f"omron_{category.name}_{start.date()}_{today.date()}.{_format}"
+
+    if _format == "json":
+        data = []
+        for ocDev, measurements in exportdata.items():
+            for m in measurements:
+                dt = datetime.fromtimestamp(m.measurementDate / 1000, tz=m.timeZone)
+                entry = {
+                    "timestamp": dt.isoformat(),
+                    "deviceName": ocDev.name,
+                    "deviceCategory": ocDev.category.name,
+                }
+                entry.update(dataclasses.asdict(m))
+                data.append(entry)
+        U.json_save(output, data)
+
+    else:  # csv
+        with open(output, "w", newline="\n", encoding="utf-8") as f:
+            writer = None
+            for ocDev, measurements in exportdata.items():
+                for m in measurements:
+                    dt = datetime.fromtimestamp(m.measurementDate / 1000, tz=m.timeZone)
+                    row = {
+                        "timestamp": dt.isoformat(),
+                        "deviceName": ocDev.name,
+                        "deviceCategory": ocDev.category.name,
+                    }
+                    row.update(dataclasses.asdict(m))
+
+                    if writer is None:
+                        writer = csv.DictWriter(
+                            f, fieldnames=row.keys(), quotechar='"', quoting=csv.QUOTE_ALL, lineterminator="\n"
+                        )
+                        writer.writeheader()
+                    writer.writerow(row)
+
+    L.info(f"Exported {len(measurements)} measurements to {output}")
 
 
 ########################################################################################################################
