@@ -783,6 +783,13 @@ def remove_device(devname: str, _config: str):
 
 @cli.command(name="sync", cls=CommonCommand)
 @click.argument("devnames", required=False, nargs=-1)
+@click.option(
+    "--category",
+    "-c",
+    "_category",
+    required=False,
+    type=click.Choice(list(OC.DeviceCategory.__members__.keys()), case_sensitive=False),
+)
 @click.option("--days", default=0, show_default=True, type=click.INT, help="Number of days to sync from today.")
 @click.option(
     "--overwrite", is_flag=True, default=Options().overwrite, show_default=True, help="Overwrite existing measurements."
@@ -794,7 +801,7 @@ def remove_device(devname: str, _config: str):
     show_default=True,
     help="Do not write to Garmin Connect.",
 )
-def sync_device(devnames: T.List[str], days: int, overwrite: bool, no_write: bool, _config: str):
+def sync_device(devnames: T.List[str], _category: str, days: int, overwrite: bool, no_write: bool, _config: str):
     """Sync DEVNAMES... to Garmin Connect.
 
     \b
@@ -821,6 +828,8 @@ def sync_device(devnames: T.List[str], days: int, overwrite: bool, no_write: boo
     except FileNotFoundError:
         L.error(f"Config file '{_config}' not found.")
         return
+
+    category = OC.DeviceCategory[_category] if _category else None
 
     devices = config.get("omron", {}).get("devices", [])
     if not devices:
@@ -849,30 +858,21 @@ def sync_device(devnames: T.List[str], days: int, overwrite: bool, no_write: boo
         L.info("Failed to login to OMRON connect or Garmin Connect.")
         return
 
-    if not devnames:
-        for device in devices:
-            if not device["enabled"]:
-                L.debug(f"Device '{device['name']}' is disabled.")
-                continue
+    # filter devices by enabled, category and name/mac address
+    devices = [d for d in devices if d["enabled"]]
+    if category:
+        devices = [d for d in devices if d["category"] == category.name]
+    if devnames:
+        devices = [d for d in devices if d["name"] in devnames or d["macaddr"] in devnames]
 
-            ocDev = OC.OmronDevice(**device)
-            omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
-            L.info(f"Device '{device['name']}' successfully synced.")
+    if not devices:
+        L.info("No matching devices found")
+        return
 
-    else:
-        for devname in devnames:
-            device = next((d for d in devices if d.get("name") == devname or d.get("macaddr") == devname), None)
-            if not device:
-                L.info(f"No device found matching: '{devname}'")
-                continue
-
-            if not device["enabled"]:
-                L.info(f"Device '{device['name']}' is disabled.")
-                continue
-
-            ocDev = OC.OmronDevice(**device)
-            omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
-            L.info(f"Device '{device['name']}' successfully synced.")
+    for device in devices:
+        ocDev = OC.OmronDevice(**device)
+        omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
+        L.info(f"Device '{device['name']}' successfully synced.")
 
 
 ########################################################################################################################
@@ -924,9 +924,8 @@ def export_measurements(devnames: str, _category: str, days: int, _format: str, 
     startdateStr = datetime.fromtimestamp(startLocal).isoformat(timespec="seconds")
     enddateStr = datetime.fromtimestamp(endLocal).isoformat(timespec="seconds")
 
-    # get list of enabled devices for the category
+    # filter devices by enabled, category and name/mac address
     devices = [d for d in devices if d["enabled"] and d["category"] == category.name]
-    # filter by device name or mac address if provided
     if devnames:
         devices = [d for d in devices if d["name"] in devnames or d["macaddr"] in devnames]
 
