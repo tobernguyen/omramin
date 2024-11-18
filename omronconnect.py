@@ -191,6 +191,7 @@ class BPMeasurement:
     irregularHB: bool = False
     movementDetect: bool = False
     cuffWrapDetect: bool = True
+    notes: str = ""
 
     def __post_init__(self):
         for field in ["systolic", "diastolic", "pulse", "measurementDate"]:
@@ -212,6 +213,7 @@ class WeightMeasurement:
     skeletalMusclePercentage: float = -1.0
     visceralFatLevel: float = -1.0
     metabolicAge: int = -1
+    notes: str = ""
 
     def __post_init__(self):
         for field in [
@@ -654,6 +656,7 @@ class OmronConnect2(OmronConnect):
                         irregularHB=int(m["irregularHB"]) != 0,
                         movementDetect=int(m["movementDetect"]) != 0,
                         cuffWrapDetect=int(m["cuffWrapDetect"]) != 0,
+                        notes=m.get("notes", ""),
                     )
                     r.append(bpm)
 
@@ -672,6 +675,7 @@ class OmronConnect2(OmronConnect):
                         restingMetabolism=m["restingMetabolism"],
                         skeletalMusclePercentage=m["skeletalMusclePercentage"],
                         visceralFatLevel=m["visceralFatLevel"],
+                        notes=m.get("notes", ""),
                     )
                     r.append(wm)
             return r

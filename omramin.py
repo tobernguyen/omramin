@@ -487,9 +487,9 @@ def omron_sync_device_to_garmin(
 
             bpm = T.cast(OC.BPMeasurement, measurement)
 
-            notes = ""
+            notes = bpm.notes
             if bpm.movementDetect:
-                notes = "Body Movement detected"
+                notes = f"{notes}, Body Movement detected"
             if bpm.irregularHB:
                 notes = f"{notes}, Irregular heartbeat detected"
             if not bpm.cuffWrapDetect:
