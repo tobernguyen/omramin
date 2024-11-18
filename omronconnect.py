@@ -331,10 +331,6 @@ class OmronConnect1(OmronConnect):
     _USER_AGENT = f"OmronConnect/{_OGSC_APP_VERSION}.001 CFNetwork/1335.0.3.4 Darwin/21.6.0)"
 
     _client = httpx.Client(
-        event_hooks={
-            "request": [_http_add_checksum],
-            # "response": [update_token],
-        },
         headers={
             "user-agent": _USER_AGENT,
             "X-OGSC-SDK-Version": _OGSC_SDK_VERSION,
