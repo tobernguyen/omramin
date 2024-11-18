@@ -1,17 +1,17 @@
 ########################################################################################################################
 
-import typing as T
+import typing as T  # isort: split
 
+import collections.abc
+import dataclasses
+import json
+import pathlib
 import re
 import types
-import collections.abc
-from datetime import datetime, date, time, timezone, timedelta
-import json
-import dataclasses
+from copy import deepcopy
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from difflib import SequenceMatcher
 from functools import reduce
-from copy import deepcopy
-import pathlib
 
 import json5
 from dateutil.parser import parse as dateutil_parse
@@ -61,11 +61,10 @@ class DataclassBase:
         if dataclasses.is_dataclass(self):
             return dataclasses.asdict(self)
 
-        elif isinstance(self, types.SimpleNamespace):
+        if isinstance(self, types.SimpleNamespace):
             return self.__dict__.copy()
 
-        else:
-            raise TypeError(f"'{self}' is not a dataclass or SimpleNamespace")
+        raise TypeError(f"'{self}' is not a dataclass or SimpleNamespace")
 
     def to_json(self) -> str:
         return json_beautify(self.to_dict())
@@ -95,9 +94,11 @@ class SimpleNamespaceEx(types.SimpleNamespace, DataclassBase):
 class EnhancedJSONEncoder(json.JSONEncoder):
     def default(self, o: T.Any) -> T.Any:
         if dataclasses.is_dataclass(o):
-            return dataclasses.asdict(o)  # type: ignore[call-overload]
-        elif isinstance(o, types.SimpleNamespace):
+            return dataclasses.asdict(o)  # type: ignore[call-overload,arg-type]
+        if isinstance(o, types.SimpleNamespace):
             return o.__dict__
+        if isinstance(o, tzinfo):
+            return str(o)
         return super().default(o)
 
 

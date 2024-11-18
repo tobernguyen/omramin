@@ -1,8 +1,11 @@
 .venv/**
 .debug/**
 .info/**
-__pycache__/**
-.mypy_cache/**
+**/__pycache__/**
+**/.*_cache/**
+**/*.egg-info/**
 .other/**
+dist/**
+build/**
 .env
-config.json
+config*.json

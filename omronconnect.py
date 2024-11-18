@@ -1,18 +1,19 @@
 ########################################################################################################################
 
-import typing as T
+import typing as T  # isort: split
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
+import datetime
 import enum
+import hashlib
+import json
 import logging
 import logging.config
-import json
-import hashlib
-import datetime
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import httpx
 import pytz
+
 import utils as U
 
 ########################################################################################################################
@@ -168,12 +169,12 @@ class DeviceCategory(enum.StrEnum):
 @dataclass(frozen=True, kw_only=False)
 class BodyIndexList:
     value: int
-    subtype: int  # unit/format ?
+    subtype: int
     unknown1: int
-    unknown2: int
+    measurementId: int
 
     def __post_init__(self):
-        for field in ["value", "subtype", "unknown1", "unknown2"]:
+        for field in ["value", "subtype", "unknown1", "measurementId"]:
             object.__setattr__(self, field, int(getattr(self, field)))
 
 
@@ -244,12 +245,12 @@ def ble_mac_to_serial(mac: str) -> str:
 def convert_weight_to_kg(weight: T.Union[int, float], unit: int) -> float:
     if unit == WeightUnit.G:
         return weight / 1000
-    elif unit == WeightUnit.LB:
+    if unit == WeightUnit.LB:
         return weight * 0.45359237
-    elif unit == WeightUnit.ST:
+    if unit == WeightUnit.ST:
         return weight * 6.35029318
-    else:
-        return weight
+
+    return weight
 
 
 ########################################################################################################################
@@ -259,13 +260,18 @@ def convert_weight_to_kg(weight: T.Union[int, float], unit: int) -> float:
 class OmronDevice:
     name: str
     macaddr: str
-    category: T.Union[DeviceCategory, str]
+    category: DeviceCategory
     user: int = 1
     enabled: bool = True
 
     def __post_init__(self):
         if not isinstance(self.category, DeviceCategory):
-            object.__setattr__(self, "category", DeviceCategory.__members__[self.category.upper()])
+            try:
+                object.__setattr__(self, "category", DeviceCategory.__members__[self.category.upper()])
+
+            except KeyError as exc:
+                object.__setattr__(self, "enabled", False)
+                raise ValueError(f"Device '{self.name}' has invalid category: '{self.category}'") from exc
 
     @property
     def serial(self) -> str:
@@ -413,7 +419,7 @@ class OmronConnect1(OmronConnect):
             pass
 
         if _debugSaveResponse:
-            fname = f".debug/{data['searchDateTo']}_{device.serial}_{device.user}.json"
+            fname = f".debug/{data['searchDateTo']}_{device.category.name}_{device.serial}_{device.user}.json"
             U.json_save(fname, returnedValue)
 
         measurements: T.List[MeasurementTypes] = []
@@ -685,8 +691,7 @@ class OmronConnect2(OmronConnect):
 def get_omron_connect(server: str) -> OmronConnect:
     if "data-sg.omronconnect.com" in server:
         return OmronConnect1(server)
-    else:
-        return OmronConnect2(server)
+    return OmronConnect2(server)
 
 
 ########################################################################################################################

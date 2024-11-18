@@ -11,3 +11,16 @@ bleak
 mypy
 types-python-dateutil
 types-pytz
+autopep8
+flake8
+flake8-pyproject
+ruff
+pylint
+isort
+
+# pytest
+# coverage
+pytest-cov
+
+twine
+build

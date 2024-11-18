@@ -25,7 +25,7 @@ keywords = ["garmin connect", "garmin", "omron", "omron connect", "sync"]
 license = {file = "LICENSE"}
 name = "omramin"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 #version = "0.1.1"
 
 [project.urls]
@@ -65,8 +65,7 @@ egg_base = "build"
 disable = ["unrecognized-option"]
 ignore = [
   ".git",
-  ".mypy_cache",
-  ".ruff_cache",
+  ".*_cache",
   "__pycache__",
   ".venv",
   ".info",
@@ -88,8 +87,7 @@ disable = [
 [tool.ruff]
 exclude = [
   ".git",
-  ".mypy_cache",
-  ".ruff_cache",
+  ".*_cache",
   "__pycache__",
   ".venv",
   ".info",
@@ -103,8 +101,7 @@ line-length = 120
 [tool.mypy]
 exclude = [
   ".git",
-  ".mypy_cache",
-  ".ruff_cache",
+  ".*_cache",
   "__pycache__",
   ".venv",
   ".info",
@@ -123,6 +120,40 @@ module = [
   "dateutil",
   "dateutil.parser",
 ]
+
+[tool.flake8]
+exclude = [
+  ".git",
+  ".*_cache",
+  "__pycache__",
+  ".venv",
+  ".info",
+  ".other",
+  ".debug",
+  ".vscode",
+]
+extend-ignore = []
+# E402 - module level import not at top of file
+ignore = "E402"
+max-line-length = 120
+
+[tool.isort]
+force_grid_wrap = 0
+include_trailing_comma = true
+line_length = 120
+multi_line_output = 3
+skip_gitignore = true
+skip_glob = [
+  ".git",
+  ".*_cache",
+  "__pycache__",
+  ".venv",
+  ".info",
+  ".other",
+  ".debug",
+  ".vscode",
+]
+use_parentheses = true
 
 [tool.pylint.logging]
 # The type of string formatting that logging methods do. `old` means using %

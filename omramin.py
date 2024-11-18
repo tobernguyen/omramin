@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 ########################################################################################################################
 
-import typing as T
+import typing as T  # isort: split
 
+import asyncio
+import binascii
 import logging
 import logging.config
-import binascii
 from datetime import datetime, timedelta
-import asyncio
 
+import bleak
+import click
+import garminconnect as GC
 import garth
 import inquirer
-import click
-import bleak
-import garminconnect as GC
 
-import utils as U
 import omronconnect as OC
+import utils as U
 from regionserver import get_server_for_country_code
 
 ########################################################################################################################
@@ -721,7 +721,7 @@ def edit_device(devname: str, _config: str):
     devices = config.get("omron", {}).get("devices", [])
     if not devices:
         L.info("No devices configured.")
-        return False
+        return
 
     if not devname:
         macaddrs = [d["macaddr"] for d in devices]
