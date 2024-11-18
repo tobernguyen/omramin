@@ -52,7 +52,8 @@ pip install -Ue .
 
 ```
 git pull
-pip install -Ur requirements.txt
+source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
+pip install -Ue .
 ```
 
 ## Usage
