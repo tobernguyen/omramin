@@ -23,30 +23,16 @@ L = logging.getLogger("omron")
 _debugSaveResponse = False
 
 ########################################################################################################################
-# 8195 -> kg
-# 8208 -> lb
-# 8224 -> st
-# 24577 -> mg/dL
-# 24593 -> mmol/L
-# 4099 -> km
-# 4112 -> mile
-# 20483 -> kPa
-# 20496 -> mmHg
-# 61536 -> steps
-# 61584 -> percentage
-# 61600 -> bpm
-# 16387 -> kcal
-# 12288 -> °C
-# 12304 -> °F
-
-# 4098 -> cm
-# 4113 -> inch
-# 8192 -> g
 
 
 class Gender(enum.IntEnum):
     MALE = 1
     FEMALE = 2
+
+
+class VolumeUnit(enum.IntEnum):
+    MGDL = 24577
+    MMOLL = 24593
 
 
 class LengthUnit(enum.IntEnum):
@@ -61,6 +47,26 @@ class WeightUnit(enum.IntEnum):
     KG = 8195
     LB = 8208
     ST = 8224
+
+
+class ValueUnit(enum.IntEnum):
+    STEPS = 61536
+    BPM = 61600
+    PERCENTAGE = 61584
+    KCAL = 16387
+
+
+class BPUnit(enum.IntEnum):
+    MMHG = 20496
+    KPA = 20483
+
+
+class TemperatureUnit(enum.IntEnum):
+    CELSIUS = 12288
+    FAHRENHEIT = 12304
+
+
+########################################################################################################################
 
 
 class ValueType(enum.StrEnum):
