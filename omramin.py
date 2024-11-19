@@ -428,12 +428,16 @@ def omron_sync_device_to_garmin(
     # get measurements from Garmin Connect for the same date range
     if ocDev.category == OC.DeviceCategory.SCALE:
         gcData = garmin_get_weighins(gc, startdateStr, enddateStr)
-
+        sync_scale_measurements(gc, gcData, measurements, opts)
     elif ocDev.category == OC.DeviceCategory.BPM:
         gcData = garmin_get_bp_measurements(gc, startdateStr, enddateStr)
+        sync_bp_measurements(gc, gcData, measurements, opts)
 
+
+def sync_scale_measurements(
+    gc: GC.Garmin, gcData: T.Dict[str, T.Any], measurements: T.List[OC.MeasurementTypes], opts: Options
+):
     for measurement in measurements:
-        # omron timestamp are UTC and in milliseconds
         tz = measurement.timeZone
         ts = measurement.measurementDate / 1000
         dtUTC = U.utcfromtimestamp(ts)
@@ -443,68 +447,80 @@ def omron_sync_device_to_garmin(
         dateStr = dtLocal.date().isoformat()
         lookup = f"{dtUTC.date().isoformat()}:{dtUTC.timestamp()}"
 
-        if ocDev.category == OC.DeviceCategory.SCALE:
-            if lookup in gcData.values():
-                if opts.overwrite:
-                    L.warning(f"  ! '{datetimeStr}': removing weigh-in")
-                    for samplePk, val in gcData.items():
-                        if val == lookup and opts.write_to_garmin:
-                            gc.delete_weigh_in(weight_pk=samplePk, cdate=dateStr)
-                else:
-                    L.info(f"  - '{datetimeStr}' weigh-in already exists")
-                    continue
+        if lookup in gcData.values():
+            if opts.overwrite:
+                L.warning(f"  ! '{datetimeStr}': removing weigh-in")
+                for samplePk, val in gcData.items():
+                    if val == lookup and opts.write_to_garmin:
+                        gc.delete_weigh_in(weight_pk=samplePk, cdate=dateStr)
+            else:
+                L.info(f"  - '{datetimeStr}' weigh-in already exists")
+                continue
 
-            wm = T.cast(OC.WeightMeasurement, measurement)
+        wm = T.cast(OC.WeightMeasurement, measurement)
 
-            L.info(f"  + '{datetimeStr}' adding weigh-in: {wm.weight} kg ")
-            if opts.write_to_garmin:
-                gc.add_body_composition(
-                    timestamp=datetimeStr,
-                    weight=wm.weight,
-                    percent_fat=wm.bodyFatPercentage if wm.bodyFatPercentage > 0 else None,
-                    percent_hydration=None,
-                    visceral_fat_mass=None,
-                    bone_mass=None,
-                    muscle_mass=(
-                        (wm.skeletalMusclePercentage * wm.weight) / 100 if wm.skeletalMusclePercentage > 0 else None
-                    ),
-                    basal_met=wm.restingMetabolism if wm.restingMetabolism > 0 else None,
-                    active_met=None,
-                    physique_rating=None,
-                    metabolic_age=wm.metabolicAge if wm.metabolicAge > 0 else None,
-                    visceral_fat_rating=wm.visceralFatLevel if wm.visceralFatLevel > 0 else None,
-                    bmi=wm.bmiValue,
-                )
+        L.info(f"  + '{datetimeStr}' adding weigh-in: {wm.weight} kg ")
+        if opts.write_to_garmin:
+            gc.add_body_composition(
+                timestamp=datetimeStr,
+                weight=wm.weight,
+                percent_fat=wm.bodyFatPercentage if wm.bodyFatPercentage > 0 else None,
+                percent_hydration=None,
+                visceral_fat_mass=None,
+                bone_mass=None,
+                muscle_mass=(
+                    (wm.skeletalMusclePercentage * wm.weight) / 100 if wm.skeletalMusclePercentage > 0 else None
+                ),
+                basal_met=wm.restingMetabolism if wm.restingMetabolism > 0 else None,
+                active_met=None,
+                physique_rating=None,
+                metabolic_age=wm.metabolicAge if wm.metabolicAge > 0 else None,
+                visceral_fat_rating=wm.visceralFatLevel if wm.visceralFatLevel > 0 else None,
+                bmi=wm.bmiValue,
+            )
 
-        elif ocDev.category == OC.DeviceCategory.BPM:
-            if lookup in gcData.values():
-                if opts.overwrite:
-                    L.warning(f"  ! '{datetimeStr}': removing blood pressure measurement")
-                    for version, val in gcData.items():
-                        if val == lookup and opts.write_to_garmin:
-                            gc.delete_blood_pressure(version=version, cdate=dateStr)
-                else:
-                    L.info(f"  - '{datetimeStr}' blood pressure already exists")
-                    continue
 
-            bpm = T.cast(OC.BPMeasurement, measurement)
+def sync_bp_measurements(
+    gc: GC.Garmin, gcData: T.Dict[str, T.Any], measurements: T.List[OC.MeasurementTypes], opts: Options
+):
+    for measurement in measurements:
+        tz = measurement.timeZone
+        ts = measurement.measurementDate / 1000
+        dtUTC = U.utcfromtimestamp(ts)
+        dtLocal = datetime.fromtimestamp(ts, tz=tz)
 
-            notes = bpm.notes
-            if bpm.movementDetect:
-                notes = f"{notes}, Body Movement detected"
-            if bpm.irregularHB:
-                notes = f"{notes}, Irregular heartbeat detected"
-            if not bpm.cuffWrapDetect:
-                notes = f"{notes}, Cuff wrap error"
-            if notes:
-                notes = notes.lstrip(", ")
+        datetimeStr = dtLocal.isoformat(timespec="seconds")
+        dateStr = dtLocal.date().isoformat()
+        lookup = f"{dtUTC.date().isoformat()}:{dtUTC.timestamp()}"
 
-            L.info(f"  + '{datetimeStr}' adding blood pressure ({bpm.systolic}/{bpm.diastolic} mmHg, {bpm.pulse} bpm)")
+        if lookup in gcData.values():
+            if opts.overwrite:
+                L.warning(f"  ! '{datetimeStr}': removing blood pressure measurement")
+                for version, val in gcData.items():
+                    if val == lookup and opts.write_to_garmin:
+                        gc.delete_blood_pressure(version=version, cdate=dateStr)
+            else:
+                L.info(f"  - '{datetimeStr}' blood pressure already exists")
+                continue
 
-            if opts.write_to_garmin:
-                gc.set_blood_pressure(
-                    timestamp=datetimeStr, systolic=bpm.systolic, diastolic=bpm.diastolic, pulse=bpm.pulse, notes=notes
-                )
+        bpm = T.cast(OC.BPMeasurement, measurement)
+
+        notes = bpm.notes
+        if bpm.movementDetect:
+            notes = f"{notes}, Body Movement detected"
+        if bpm.irregularHB:
+            notes = f"{notes}, Irregular heartbeat detected"
+        if not bpm.cuffWrapDetect:
+            notes = f"{notes}, Cuff wrap error"
+        if notes:
+            notes = notes.lstrip(", ")
+
+        L.info(f"  + '{datetimeStr}' adding blood pressure ({bpm.systolic}/{bpm.diastolic} mmHg, {bpm.pulse} bpm)")
+
+        if opts.write_to_garmin:
+            gc.set_blood_pressure(
+                timestamp=datetimeStr, systolic=bpm.systolic, diastolic=bpm.diastolic, pulse=bpm.pulse, notes=notes
+            )
 
 
 def garmin_get_bp_measurements(gc: GC.Garmin, startdate: str, enddate: str):
@@ -542,6 +558,38 @@ def garmin_get_weighins(gc: GC.Garmin, startdate: str, enddate: str):
     L.info(f"Downloaded {len(gcWeighins)} weigh-ins from 'Garmin Connect'")
 
     return gcWeighins
+
+
+########################################################################################################################
+class DateRangeException(Exception):
+    pass
+
+
+def calculate_date_range(days: int) -> T.Tuple[int, int]:
+    days = max(days, 0)
+    today = datetime.combine(datetime.today().date(), datetime.max.time())
+    start = today - timedelta(days=days)
+    start = datetime.combine(start, datetime.min.time())
+    startLocal = start.timestamp()
+    endLocal = today.timestamp()
+    if endLocal - startLocal <= 0:
+        raise DateRangeException()
+
+    return int(startLocal), int(endLocal)
+
+
+def filter_devices(
+    devices: T.List[T.Dict[str, T.Any]],
+    *,
+    devnames: T.Optional[T.List[str]] = None,
+    category: T.Optional[OC.DeviceCategory] = None,
+) -> T.List[T.Dict[str, T.Any]]:
+    devices = [d for d in devices if d["enabled"]]
+    if category:
+        devices = [d for d in devices if d["category"] == category.name]
+    if devnames:
+        devices = [d for d in devices if d["name"] in devnames or d["macaddr"] in devnames]
+    return devices
 
 
 ########################################################################################################################
@@ -801,7 +849,14 @@ def remove_device(devname: str, _config: str):
     show_default=True,
     help="Do not write to Garmin Connect.",
 )
-def sync_device(devnames: T.List[str], _category: str, days: int, overwrite: bool, no_write: bool, _config: str):
+def sync_device(
+    devnames: T.List[str],
+    _category: T.Optional[str],
+    days: int,
+    overwrite: bool,
+    no_write: bool,
+    _config: str,
+):
     """Sync DEVNAMES... to Garmin Connect.
 
     \b
@@ -836,11 +891,17 @@ def sync_device(devnames: T.List[str], _category: str, days: int, overwrite: boo
         L.info("No devices configured.")
         return
 
-    days = max(days, 0)
+    try:
+        startLocal, endLocal = calculate_date_range(days)
+    except DateRangeException:
+        L.info("Invalid date range")
+        return
 
-    today = datetime.combine(datetime.today().date(), datetime.max.time())
-    start = today - timedelta(days=days)
-    start = datetime.combine(start, datetime.min.time())
+    # filter devices by enabled, category and name/mac address
+    devices = filter_devices(devices, devnames=devnames, category=category)
+    if not devices:
+        L.info("No matching devices found")
+        return
 
     try:
         gc = garmin_login(_config)
@@ -858,20 +919,9 @@ def sync_device(devnames: T.List[str], _category: str, days: int, overwrite: boo
         L.info("Failed to login to OMRON connect or Garmin Connect.")
         return
 
-    # filter devices by enabled, category and name/mac address
-    devices = [d for d in devices if d["enabled"]]
-    if category:
-        devices = [d for d in devices if d["category"] == category.name]
-    if devnames:
-        devices = [d for d in devices if d["name"] in devnames or d["macaddr"] in devnames]
-
-    if not devices:
-        L.info("No matching devices found")
-        return
-
     for device in devices:
         ocDev = OC.OmronDevice(**device)
-        omron_sync_device_to_garmin(oc, gc, ocDev, int(start.timestamp()), int(today.timestamp()), opts=opts)
+        omron_sync_device_to_garmin(oc, gc, ocDev, startLocal, endLocal, opts=opts)
         L.info(f"Device '{device['name']}' successfully synced.")
 
 
@@ -896,12 +946,34 @@ def sync_device(devnames: T.List[str], _category: str, days: int, overwrite: boo
     help="Output format",
 )
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
-def export_measurements(devnames: str, _category: str, days: int, _format: str, output: str, _config: str):
-    """Export device measurements to CSV, JSON format."""
+def export_measurements(
+    devnames: T.Optional[T.List[str]],
+    _category: str,
+    days: int,
+    _format: T.Optional[str],
+    output: T.Optional[str],
+    _config: str,
+):
+    """Export device measurements to CSV or JSON format."""
 
     config = U.json_load("config.json")
     devices = config.get("omron", {}).get("devices", [])
     category = OC.DeviceCategory[_category]
+
+    try:
+        startLocal, endLocal = calculate_date_range(days)
+    except DateRangeException:
+        L.info("Invalid date range")
+        return
+
+    # filter devices by enabled, category and name/mac address
+    devices = filter_devices(devices, devnames=devnames)
+    if not devices:
+        L.info("No matching devices found")
+        return
+
+    startdateStr = datetime.fromtimestamp(startLocal).isoformat(timespec="seconds")
+    enddateStr = datetime.fromtimestamp(endLocal).isoformat(timespec="seconds")
 
     try:
         oc = omron_login(_config)
@@ -910,27 +982,6 @@ def export_measurements(devnames: str, _category: str, days: int, _format: str, 
         return
 
     if not oc:
-        return
-
-    today = datetime.combine(datetime.today().date(), datetime.max.time())
-    start = today - timedelta(days=days)
-    start = datetime.combine(start, datetime.min.time())
-    startLocal = int(start.timestamp())
-    endLocal = int(today.timestamp())
-    if endLocal - startLocal <= 0:
-        L.info("Invalid date range")
-        return
-
-    startdateStr = datetime.fromtimestamp(startLocal).isoformat(timespec="seconds")
-    enddateStr = datetime.fromtimestamp(endLocal).isoformat(timespec="seconds")
-
-    # filter devices by enabled, category and name/mac address
-    devices = [d for d in devices if d["enabled"] and d["category"] == category.name]
-    if devnames:
-        devices = [d for d in devices if d["name"] in devnames or d["macaddr"] in devnames]
-
-    if not devices:
-        L.info("No matching devices found")
         return
 
     exportdata = {}
@@ -949,43 +1000,55 @@ def export_measurements(devnames: str, _category: str, days: int, _format: str, 
         return
 
     if not output:
-        output = f"omron_{category.name}_{start.date()}_{today.date()}.{_format}"
+        output = (
+            f"omron_{category.name}_{datetime.fromtimestamp(startLocal).date()}_"
+            f"{datetime.fromtimestamp(endLocal).date()}.{_format}"
+        )
 
     if _format == "json":
-        data = []
+        export_json(output, exportdata)
+
+    else:
+        export_csv(output, exportdata)
+
+    L.info(f"Exported {len(exportdata)} measurements to {output}")
+
+
+def export_csv(output: str, exportdata: T.Dict[OC.OmronDevice, T.List[OC.MeasurementTypes]]) -> None:
+    with open(output, "w", newline="\n", encoding="utf-8") as f:
+        writer = None
         for ocDev, measurements in exportdata.items():
             for m in measurements:
                 dt = datetime.fromtimestamp(m.measurementDate / 1000, tz=m.timeZone)
-                entry = {
+                row = {
                     "timestamp": dt.isoformat(),
                     "deviceName": ocDev.name,
                     "deviceCategory": ocDev.category.name,
                 }
-                entry.update(dataclasses.asdict(m))
-                data.append(entry)
-        U.json_save(output, data)
+                row.update(dataclasses.asdict(m))
 
-    else:  # csv
-        with open(output, "w", newline="\n", encoding="utf-8") as f:
-            writer = None
-            for ocDev, measurements in exportdata.items():
-                for m in measurements:
-                    dt = datetime.fromtimestamp(m.measurementDate / 1000, tz=m.timeZone)
-                    row = {
-                        "timestamp": dt.isoformat(),
-                        "deviceName": ocDev.name,
-                        "deviceCategory": ocDev.category.name,
-                    }
-                    row.update(dataclasses.asdict(m))
+                if writer is None:
+                    writer = csv.DictWriter(
+                        f, fieldnames=row.keys(), quotechar='"', quoting=csv.QUOTE_ALL, lineterminator="\n"
+                    )
+                    writer.writeheader()
+                writer.writerow(row)
 
-                    if writer is None:
-                        writer = csv.DictWriter(
-                            f, fieldnames=row.keys(), quotechar='"', quoting=csv.QUOTE_ALL, lineterminator="\n"
-                        )
-                        writer.writeheader()
-                    writer.writerow(row)
 
-    L.info(f"Exported {len(measurements)} measurements to {output}")
+def export_json(output: str, exportdata: T.Dict[OC.OmronDevice, T.List[OC.MeasurementTypes]]) -> None:
+    data = []
+    for ocDev, measurements in exportdata.items():
+        for m in measurements:
+            dt = datetime.fromtimestamp(m.measurementDate / 1000, tz=m.timeZone)
+            entry = {
+                "timestamp": dt.isoformat(),
+                "deviceName": ocDev.name,
+                "deviceCategory": ocDev.category.name,
+            }
+            entry.update(dataclasses.asdict(m))
+            data.append(entry)
+
+    U.json_save(output, data)
 
 
 ########################################################################################################################

@@ -419,8 +419,12 @@ class OmronConnect1(OmronConnect):
             if "errorCode" in returnedValue:
                 L.error(f"get_measurements() -> {returnedValue}")
                 return []
+
         except KeyError:
             pass
+
+        if not returnedValue:
+            return []
 
         if _debugSaveResponse:
             fname = f".debug/{data['searchDateTo']}_{device.category.name}_{device.serial}_{device.user}.json"
@@ -433,80 +437,84 @@ class OmronConnect1(OmronConnect):
             return measurements
 
         for devModel in deviceModelList:
-            deviceModel = devModel["deviceModel"]
-            deviceSerialIDList = devModel["deviceSerialIDList"]
-            for dev in deviceSerialIDList:
-                deviceSerialID = dev["deviceSerialID"]
-                user = dev["userNumberInDevice"]
-                L.debug(f" - deviceModel: {deviceModel} category: {devCat.name} serial: {deviceSerialID} user: {user}")
+            measurements.extend(self._process_device_model(devModel, device, devCat))
 
-                if deviceSerialID != device.serial:
-                    continue
+        return measurements
 
-                if device.category == DeviceCategory.BPM:
-                    for m in dev["measureList"]:
-                        bodyIndexList = {}
-                        for k, v in m["bodyIndexList"].items():
-                            bodyIndexList[k] = BodyIndexList(*v)
+    def _process_device_model(
+        self, devModel: T.Dict[str, T.Any], device: OmronDevice, devCat: DeviceCategory
+    ) -> T.List[MeasurementTypes]:
+        measurements: T.List[MeasurementTypes] = []
+        deviceModel = devModel["deviceModel"]
+        deviceSerialIDList = devModel["deviceSerialIDList"]
+        for dev in deviceSerialIDList:
+            deviceSerialID = dev["deviceSerialID"]
+            user = dev["userNumberInDevice"]
+            L.debug(f" - deviceModel: {deviceModel} category: {devCat.name} serial: {deviceSerialID} user: {user}")
 
-                        systolic = bodyIndexList[ValueType.MMHG_MAX_FIGURE].value
-                        diastolic = bodyIndexList[ValueType.MMHG_MIN_FIGURE].value
-                        pulse = bodyIndexList[ValueType.BPM_FIGURE].value
-                        bodymotion = bodyIndexList[ValueType.BODY_MOTION_FLAG_FIGURE].value
-                        irregHB = bodyIndexList[ValueType.ARRHYTHMIA_FLAG_FIGURE].value
-                        cuffWrapGuid = bodyIndexList[ValueType.KEEP_UP_CHECK_FIGURE].value
-                        timeZone = pytz.timezone(m["timeZone"])
+            if deviceSerialID != device.serial:
+                continue
 
-                        bp = BPMeasurement(
-                            systolic=systolic,
-                            diastolic=diastolic,
-                            pulse=pulse,
-                            measurementDate=m["measureDateTo"],
-                            timeZone=timeZone,
-                            irregularHB=irregHB != 0,
-                            movementDetect=bodymotion != 0,
-                            cuffWrapDetect=cuffWrapGuid != 0,
-                        )
-                        measurements.append(bp)
+            if device.category == DeviceCategory.BPM:
+                measurements.extend(self._process_bpm_measurements(dev))
+            elif device.category == DeviceCategory.SCALE:
+                measurements.extend(self._process_scale_measurements(dev))
+            break
 
-                elif device.category == DeviceCategory.SCALE:
-                    for m in dev["measureList"]:
-                        bodyIndexList = {}
-                        for k, v in m["bodyIndexList"].items():
-                            bodyIndexList[k] = BodyIndexList(*v)
+        return measurements
 
-                        weight = bodyIndexList[ValueType.KG_FIGURE].value / 100
-                        weightUnit = bodyIndexList[ValueType.KG_FIGURE].subtype
-                        # garmin uses kg
-                        weight = convert_weight_to_kg(weight, weightUnit)
-                        bodyFatPercentage = bodyIndexList[ValueType.BODY_FAT_PER_FIGURE].value / 10
-                        # bodyFat = bodyIndexList[ValueType.BODY_FAT_PER_FIGURE].value / 10
-                        sceletalMusclePercentage = bodyIndexList[ValueType.RATE_SKELETAL_MUSCLE_FIGURE].value / 10
-                        # sceletalMuscle = bodyIndexList[ValueType.KG_SKELETAL_MUSCLE_MASS_FIGURE].value / 10
-                        # sceletalMuscleUnit = bodyIndexList[ValueType.KG_SKELETAL_MUSCLE_MASS_FIGURE].subtype
-                        # sceletalMuscle = convert_weight_to_kg(sceletalMuscle, sceletalMuscleUnit)
+    def _process_bpm_measurements(self, dev: T.Dict[str, T.Any]) -> T.List[BPMeasurement]:
+        measurements: T.List[BPMeasurement] = []
+        for m in dev["measureList"]:
+            bodyIndexList = {k: BodyIndexList(*v) for k, v in m["bodyIndexList"].items()}
+            systolic = bodyIndexList[ValueType.MMHG_MAX_FIGURE].value
+            diastolic = bodyIndexList[ValueType.MMHG_MIN_FIGURE].value
+            pulse = bodyIndexList[ValueType.BPM_FIGURE].value
+            bodymotion = bodyIndexList[ValueType.BODY_MOTION_FLAG_FIGURE].value
+            irregHB = bodyIndexList[ValueType.ARRHYTHMIA_FLAG_FIGURE].value
+            cuffWrapGuid = bodyIndexList[ValueType.KEEP_UP_CHECK_FIGURE].value
+            timeZone = pytz.timezone(m["timeZone"])
 
-                        basal_met = bodyIndexList[ValueType.BASAL_METABOLISM_FIGURE].value
-                        # physique_rating = bodyIndexList[ValueType.RATE_SKELETAL_MUSCLE_CHECK_FIGURE].value
-                        metabolic_age = bodyIndexList[ValueType.BIOLOGICAL_AGE_FIGURE].value
-                        visceral_fat_rating = bodyIndexList[ValueType.VISCERAL_FAT_FIGURE].value / 10
-                        bmi = bodyIndexList[ValueType.BMI_FIGURE].value / 10
-                        timeZone = pytz.timezone(m["timeZone"])
+            bp = BPMeasurement(
+                systolic=systolic,
+                diastolic=diastolic,
+                pulse=pulse,
+                measurementDate=m["measureDateTo"],
+                timeZone=timeZone,
+                irregularHB=irregHB != 0,
+                movementDetect=bodymotion != 0,
+                cuffWrapDetect=cuffWrapGuid != 0,
+            )
+            measurements.append(bp)
+        return measurements
 
-                        wm = WeightMeasurement(
-                            weight=weight,
-                            measurementDate=m["measureDateTo"],
-                            timeZone=timeZone,
-                            bmiValue=bmi,
-                            bodyFatPercentage=bodyFatPercentage,
-                            restingMetabolism=basal_met,
-                            skeletalMusclePercentage=sceletalMusclePercentage,
-                            visceralFatLevel=visceral_fat_rating,
-                            metabolicAge=metabolic_age,
-                        )
-                        measurements.append(wm)
-                break
+    def _process_scale_measurements(self, dev: T.Dict[str, T.Any]) -> T.List[WeightMeasurement]:
+        measurements: T.List[WeightMeasurement] = []
+        for m in dev["measureList"]:
+            bodyIndexList = {k: BodyIndexList(*v) for k, v in m["bodyIndexList"].items()}
+            weight = bodyIndexList[ValueType.KG_FIGURE].value / 100
+            weightUnit = bodyIndexList[ValueType.KG_FIGURE].subtype
+            weight = convert_weight_to_kg(weight, weightUnit)
+            bodyFatPercentage = bodyIndexList[ValueType.BODY_FAT_PER_FIGURE].value / 10
+            sceletalMusclePercentage = bodyIndexList[ValueType.RATE_SKELETAL_MUSCLE_FIGURE].value / 10
+            basal_met = bodyIndexList[ValueType.BASAL_METABOLISM_FIGURE].value
+            metabolic_age = bodyIndexList[ValueType.BIOLOGICAL_AGE_FIGURE].value
+            visceral_fat_rating = bodyIndexList[ValueType.VISCERAL_FAT_FIGURE].value / 10
+            bmi = bodyIndexList[ValueType.BMI_FIGURE].value / 10
+            timeZone = pytz.timezone(m["timeZone"])
 
+            wm = WeightMeasurement(
+                weight=weight,
+                measurementDate=m["measureDateTo"],
+                timeZone=timeZone,
+                bmiValue=bmi,
+                bodyFatPercentage=bodyFatPercentage,
+                restingMetabolism=basal_met,
+                skeletalMusclePercentage=sceletalMusclePercentage,
+                visceralFatLevel=visceral_fat_rating,
+                metabolicAge=metabolic_age,
+            )
+            measurements.append(wm)
         return measurements
 
 
