@@ -120,13 +120,14 @@ If this is first time you will be asked to enter login information for both _Gar
 
 ### Commands
 
-| Command | Description                               |
-| ------- | ----------------------------------------- |
-| add     | Add new OMRON device                      |
-| config  | Configure a device by name or MAC address |
-| list    | List all configured devices               |
-| remove  | Remove a device by name or MAC address    |
-| sync    | Sync device(s) to Garmin Connect          |
+| Command | Description                                       |
+| ------- | ------------------------------------------------- |
+| add     | Add new OMRON device                              |
+| config  | Configure a device by name or MAC address         |
+| export  | Export device measurements to CSV or JSON format. |
+| list    | List all configured devices                       |
+| remove  | Remove a device by name or MAC address            |
+| sync    | Sync device(s) to Garmin Connect                  |
 
 For more details on each command, use:
 
