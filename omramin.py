@@ -3,6 +3,7 @@
 
 import typing as T  # isort: split
 
+import os
 import asyncio
 import binascii
 import csv
@@ -10,6 +11,7 @@ import dataclasses
 import logging
 import logging.config
 from datetime import datetime, timedelta
+import pathlib
 
 import bleak
 import click
@@ -37,7 +39,7 @@ class Options:
 
 ########################################################################################################################
 
-PATH_DEFAULT_CONFIG = "config.json"
+PATH_DEFAULT_CONFIG = "~/.omramin/config.json"
 
 DEFAULT_CONFIG = {
     "garmin": {},
@@ -94,6 +96,8 @@ LOGGING_CONFIG = {
 }
 
 ########################################################################################################################
+
+_E = os.environ.get
 
 logging.config.dictConfig(LOGGING_CONFIG)
 L = logging.getLogger("")
@@ -598,11 +602,18 @@ class CommonCommand(click.Command):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self._defaultconfig = PATH_DEFAULT_CONFIG
+
+        for p in [_E("OMRAMIN_CONFIG", PATH_DEFAULT_CONFIG), "./config.json"]:
+            if pathlib.Path(p).expanduser().resolve().exists():
+                self._defaultconfig = p
+
         self.params[0:0] = [
             click.Option(
                 ("--config", "_config"),
                 type=click.Path(writable=True, dir_okay=False),
-                default=PATH_DEFAULT_CONFIG,
+                default=pathlib.Path(self._defaultconfig).expanduser().resolve(),
                 show_default=True,
                 help="Config file",
             ),
@@ -1054,6 +1065,8 @@ def export_json(output: str, exportdata: T.Dict[OC.OmronDevice, T.List[OC.Measur
 ########################################################################################################################
 
 if __name__ == "__main__":
+    pathlib.Path("~/.omramin").expanduser().resolve().mkdir(parents=True, exist_ok=True)
+
     cli()
 
 ########################################################################################################################
