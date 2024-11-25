@@ -1,6 +1,6 @@
 bleak==0.22.3
 click==8.1.7
-garminconnect==0.2.20
+garminconnect==0.2.21
 httpx[http2,cli,brotli]==0.27.2
 inquirer==3.4.0
 json5==0.9.28
