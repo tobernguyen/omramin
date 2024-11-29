@@ -1,6 +1,6 @@
 # omramin
 
-Synchronize data from _OMRON connect_ to _Garmin Connect_.
+Sync blood pressure and weight measurements from _OMRON connect_ to _Garmin Connect_.
 
 OMRON Connect utilizes two distinct API versions:
 
