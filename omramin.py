@@ -12,7 +12,6 @@ import logging.config
 import os
 import pathlib
 from datetime import datetime, timedelta
-from packaging.version import Version
 
 import bleak
 import click
@@ -27,10 +26,6 @@ from regionserver import get_server_for_country_code
 ########################################################################################################################
 
 __version__ = "0.1.1"
-
-########################################################################################################################
-# https://github.com/matin/garth/issues/73#issuecomment-2500754984
-GC.garth.http.USER_AGENT = {"User-Agent": ("GCM-iOS-5.7.2.1")}
 
 ########################################################################################################################
 
