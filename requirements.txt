@@ -5,4 +5,4 @@ httpx[http2,cli,brotli]==0.28.1
 inquirer==3.4.0
 json5==0.10.0
 python-dateutil==2.9.0.post0
-pytz==2024.2
+pytz==2025.1
