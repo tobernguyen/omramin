@@ -526,7 +526,7 @@ class OmronConnect2(OmronConnect):
 
     # monkey-patch httpx so checksum(req.content) works with omron servers.
     # pylint: disable=protected-access
-    httpx._content.json_dumps = lambda obj, **kw: json.dumps(obj, separators=(",", ":"), **kw)
+    httpx._content.json_dumps = lambda obj, **kw: json.dumps(obj, **{**kw, "separators": (",", ":")})
 
     _client = httpx.Client(
         event_hooks={
