@@ -79,7 +79,29 @@ If MAC address is known run e.g.:
   omramin add -m 00:11:22:33:44:55 --category scale --name "My Scale" --user 3
 ```
 
+#### How to find MAC address of BPM
+
+0. Turn on the pairing mode of the device
+1. Use Android App [nRF Connect](https://play.google.com/store/apps/details?id=no.nordicsemi.android.mcp&hl=en_US)
+2. Scan for BLE devices
+3. Find device with "BLESmart_BPM" in the name
+4. The MAC address is displayed in the second line "XX:XX:XX:XX:XX:XX"
+
+Then you can add the device with the following command:
+
+Notice that **user number is really important** for the sync to work
+```sh
+omramin add -m XX:XX:XX:XX:XX:XX --category BPM --name "My BPM" --user 2
+```
+
 ### Synchronizing to Garmin Connect:
+
+#### Set up the credentials for Garmin Connect and OMRON connect
+Use the following command and follow the instructions:
+
+```sh
+omramin sync
+```
 
 To sync data from your OMRON device to Garmin Connect:
 
@@ -88,7 +110,6 @@ omramin sync --days 1
 ```
 
 This will synchronize data for the today and yesterday. Adjust the --days parameter as needed.  
-If this is first time you will be asked to enter login information for both _Garmin Connect_ and _OMRON connect_.
 
 ```log
 [2024-11-14 08:04:20] [I] Garmin login
@@ -134,6 +155,20 @@ For more details on each command, use:
 ```sh
 omramin [COMMAND] --help
 ```
+
+## Troubleshooting
+
+### Config file is not found
+
+Create a config file in `~/.omramin/config.json`
+
+```json
+{
+    "omron": {
+      "devices": []
+    },
+    "garmin": {}
+}
 
 ## Related Projects
 
